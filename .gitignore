@@ -1,0 +1,72 @@
+# Unity generated
+[Ll]ibrary/
+[Tt]emp/
+[Oo]bj/
+[Bb]uild/
+[Bb]uilds/
+[Ll]ogs/
+[Uu]ser[Ss]ettings/
+
+# MemoryCaptures
+[Mm]emoryCaptures/
+
+# Recordings
+[Rr]ecordings/
+
+# Asset meta
+*.pidb.meta
+*.pdb.meta
+*.mdb.meta
+
+# Unity3D generated
+*.csproj
+*.unityproj
+*.sln
+*.suo
+*.tmp
+*.user
+*.userprefs
+*.pidb
+*.booproj
+*.svd
+*.pdb
+*.mdb
+*.opendb
+*.VC.db
+
+# Unity3D generated file on crash
+sysinfo.txt
+
+# Builds
+*.apk
+*.aab
+*.unitypackage
+*.app
+
+# Crashlytics
+crashlytics-build.properties
+
+# Packed Addressables
+[Aa]ddressables/
+
+# Packed AssetBundles
+[Ss]treamingAssets/aa.meta
+[Ss]treamingAssets/aa/
+
+# Visual Studio cache
+.vs/
+
+# Rider
+.idea/
+
+# Visual Studio Code
+.vscode/
+
+# OS generated
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
