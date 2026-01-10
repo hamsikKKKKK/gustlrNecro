@@ -1,17 +1,18 @@
 using UnityEngine;
+using UnityEngine.Tilemaps;
 using System.Collections.Generic;
 
 namespace Necrocis
 {
     /// <summary>
-    /// 바이옴 맵 관리 기본 클래스 (청크 기반 오픈월드)
+    /// 바이옴 맵 관리 기본 클래스 (청크 기반 + Tilemap)
     /// </summary>
     public abstract class BiomeManager : MonoBehaviour
     {
         [Header("맵 설정")]
         [SerializeField] protected int mapWidth = 90;
         [SerializeField] protected int mapHeight = 90;
-        [SerializeField] protected int chunkSize = 16;
+        [SerializeField] protected int chunkSize;
         [SerializeField] protected float tileSize = 1f;
 
         [Header("생성 설정")]
@@ -23,9 +24,16 @@ namespace Necrocis
         [SerializeField] protected int unloadDistance = 3;  // 언로드 거리
         [SerializeField] protected float chunkUpdateInterval = 0.5f;  // 청크 갱신 간격
 
-        [Header("참조")]
+        [Header("오브젝트 로딩 설정")]
+        [SerializeField] protected int objectLoadDistance = 1;
+        [SerializeField] protected int objectUnloadDistance = 2;
+        [SerializeField] protected int objectGenerationBudget = 256; // 프레임당 처리 예산
+
+        [Header("Tilemap")]
+        [SerializeField] protected Grid grid;
         [SerializeField] protected Transform tilesParent;
         [SerializeField] protected Transform objectsParent;
+        [SerializeField] protected Transform pooledObjectsParent;
 
         // 청크 정보
         protected int chunksX;
@@ -38,14 +46,13 @@ namespace Necrocis
         protected Vector2Int lastPlayerChunk = new Vector2Int(-999, -999);
         protected float chunkUpdateTimer = 0f;
 
-        // 타일 데이터
-        protected BiomeTile[,] tileMap;
-
-        // 노이즈 생성기
-        protected FastNoiseLite noise;
-
         // 바이옴 타입 (하위 클래스에서 설정)
         protected BiomeType biomeType = BiomeType.None;
+
+        // 로드된 청크 내 이동 불가 타일
+        protected HashSet<Vector2Int> blockedCells = new HashSet<Vector2Int>();
+
+        private readonly Dictionary<int, Stack<GameObject>> objectPool = new Dictionary<int, Stack<GameObject>>();
 
         public int MapWidth => mapWidth;
         public int MapHeight => mapHeight;
@@ -61,10 +68,12 @@ namespace Necrocis
             {
                 seed = Random.Range(0, 100000);
             }
-            Random.InitState(seed);
 
-            // 노이즈 초기화
-            noise = new FastNoiseLite(seed);
+            if (chunkSize <= 0)
+            {
+                Debug.LogError("[BiomeManager] chunkSize가 0 이하입니다. 인스펙터에서 설정하세요.");
+                chunkSize = 1;
+            }
 
             // 청크 수 계산
             chunksX = Mathf.CeilToInt((float)mapWidth / chunkSize);
@@ -96,23 +105,29 @@ namespace Necrocis
         /// </summary>
         protected virtual void Initialize()
         {
+            EnsureGrid();
+
             // 부모 오브젝트 생성
             if (tilesParent == null)
             {
                 GameObject tilesObj = new GameObject("Tiles");
-                tilesObj.transform.SetParent(transform);
+                tilesObj.transform.SetParent(grid.transform, false);
                 tilesParent = tilesObj.transform;
             }
 
             if (objectsParent == null)
             {
                 GameObject objsObj = new GameObject("Objects");
-                objsObj.transform.SetParent(transform);
+                objsObj.transform.SetParent(transform, false);
                 objectsParent = objsObj.transform;
             }
 
-            // 타일맵 초기화
-            tileMap = new BiomeTile[mapWidth, mapHeight];
+            if (pooledObjectsParent == null)
+            {
+                GameObject poolObj = new GameObject("PooledObjects");
+                poolObj.transform.SetParent(objectsParent, false);
+                pooledObjectsParent = poolObj.transform;
+            }
 
             // 청크 초기화
             chunks = new Chunk[chunksX, chunksY];
@@ -123,6 +138,17 @@ namespace Necrocis
                     chunks[cx, cy] = new Chunk(cx, cy, chunkSize);
                 }
             }
+        }
+
+        private void EnsureGrid()
+        {
+            if (grid != null) return;
+
+            GameObject gridObj = new GameObject("BiomeGrid");
+            gridObj.transform.SetParent(transform, false);
+            grid = gridObj.AddComponent<Grid>();
+            grid.cellSize = new Vector3(tileSize, tileSize, tileSize);
+            grid.cellGap = Vector3.zero;
         }
 
         /// <summary>
@@ -151,7 +177,9 @@ namespace Necrocis
 
             playerTransform = player.transform;
             Vector3 spawnPos = GetPlayerSpawnPosition();
+            spawnPos.y = -2f;
             player.SpawnAt(spawnPos);
+            player.LockY(-2f);
             Debug.Log($"[BiomeManager] 플레이어 스폰: {spawnPos}");
 
             // 카메라 설정
@@ -239,6 +267,8 @@ namespace Necrocis
                     LoadChunk(chunkPos.x, chunkPos.y);
                 }
             }
+
+            UpdateObjectChunks(playerChunk);
         }
 
         /// <summary>
@@ -253,22 +283,64 @@ namespace Necrocis
             // 이미 로드됨
             if (chunk.isLoaded) return;
 
-            // 저장된 데이터 확인
-            ChunkSaveData savedData = ChunkSaveSystem.LoadChunk(biomeType, chunkX, chunkY);
+            EnsureChunkRoot(chunk);
+            LoadChunkChanges(chunk);
 
-            if (savedData != null && savedData.isGenerated)
-            {
-                // 저장된 데이터로 복원
-                RestoreChunk(chunk, savedData);
-            }
-            else
-            {
-                // 새로 생성
-                GenerateChunk(chunkX, chunkY);
-            }
+            // 타일/오브젝트 생성
+            GenerateTiles(chunk);
 
             chunk.isLoaded = true;
             loadedChunks.Add(new Vector2Int(chunkX, chunkY));
+            Debug.Log($"[BiomeManager] 청크 로드: ({chunkX}, {chunkY})");
+        }
+
+        private void EnsureChunkRoot(Chunk chunk)
+        {
+            if (chunk.root != null) return;
+
+            GameObject chunkRoot = new GameObject($"Chunk_{chunk.chunkX}_{chunk.chunkY}");
+            chunkRoot.transform.SetParent(tilesParent, false);
+
+            Vector3 chunkOrigin = new Vector3(chunk.chunkX * chunkSize * tileSize, 0f, chunk.chunkY * chunkSize * tileSize);
+            chunkRoot.transform.localPosition = chunkOrigin;
+            chunkRoot.transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
+
+            Tilemap tilemap = chunkRoot.AddComponent<Tilemap>();
+            TilemapRenderer renderer = chunkRoot.AddComponent<TilemapRenderer>();
+            renderer.sortingOrder = -1000;
+
+            chunk.root = chunkRoot;
+            chunk.tilemap = tilemap;
+            chunk.tilemapRenderer = renderer;
+        }
+
+        private void LoadChunkChanges(Chunk chunk)
+        {
+            if (chunk.hasLoadedSave) return;
+
+            ChunkSaveData savedData = ChunkSaveSystem.LoadChunk(biomeType, chunk.chunkX, chunk.chunkY);
+            if (savedData != null)
+            {
+                if (savedData.objectStates != null)
+                {
+                    foreach (var objState in savedData.objectStates)
+                    {
+                        ObjectId id = new ObjectId(objState.worldX, objState.worldY, objState.objectType);
+                        chunk.modifiedObjects[id] = new ObjectStateDelta(objState.isDestroyed, objState.isCollected);
+                    }
+                }
+
+                if (savedData.tileDeltas != null)
+                {
+                    foreach (var tileDelta in savedData.tileDeltas)
+                    {
+                        Vector2Int pos = new Vector2Int(tileDelta.worldX, tileDelta.worldY);
+                        chunk.modifiedTiles[pos] = (BiomeTileType)tileDelta.tileType;
+                    }
+                }
+            }
+
+            chunk.hasLoadedSave = true;
         }
 
         /// <summary>
@@ -282,106 +354,215 @@ namespace Necrocis
             if (!chunk.isLoaded) return;
 
             // 청크 데이터 저장
-            SaveChunk(chunkX, chunkY);
+            SaveChunk(chunk);
 
             // 오브젝트 제거
-            DestroyChunkObjects(chunk);
+            UnloadChunkObjects(chunk);
+
+            // 타일 제거
+            if (chunk.tilemap != null)
+            {
+                chunk.tilemap.ClearAllTiles();
+            }
 
             chunk.isLoaded = false;
             loadedChunks.Remove(new Vector2Int(chunkX, chunkY));
+            Debug.Log($"[BiomeManager] 청크 언로드: ({chunkX}, {chunkY})");
         }
 
         /// <summary>
-        /// 청크 생성 (하위 클래스에서 구현)
+        /// 타일 생성
         /// </summary>
-        protected abstract void GenerateChunk(int chunkX, int chunkY);
-
-        /// <summary>
-        /// 청크 저장
-        /// </summary>
-        protected virtual void SaveChunk(int chunkX, int chunkY)
+        protected virtual void GenerateTiles(Chunk chunk)
         {
-            Chunk chunk = chunks[chunkX, chunkY];
+            if (chunk.tilemap == null) return;
 
-            ChunkSaveData saveData = new ChunkSaveData
+            TileBase[] tiles = new TileBase[chunkSize * chunkSize];
+            int startX = chunk.chunkX * chunkSize;
+            int startY = chunk.chunkY * chunkSize;
+
+            for (int ly = 0; ly < chunkSize; ly++)
             {
-                chunkX = chunkX,
-                chunkY = chunkY,
-                seed = seed,
-                isGenerated = chunk.isGenerated
-            };
-
-            // 타일 데이터 저장
-            int startX = chunkX * chunkSize;
-            int startY = chunkY * chunkSize;
-
-            for (int lx = 0; lx < chunkSize; lx++)
-            {
-                for (int ly = 0; ly < chunkSize; ly++)
+                for (int lx = 0; lx < chunkSize; lx++)
                 {
                     int gx = startX + lx;
                     int gy = startY + ly;
+                    int index = ly * chunkSize + lx;
 
-                    if (IsValidPosition(gx, gy) && tileMap[gx, gy] != null)
+                    if (!IsValidPosition(gx, gy))
                     {
-                        TileSaveData tileData = new TileSaveData
+                        tiles[index] = null;
+                        continue;
+                    }
+
+                    TileSample sample = SampleTile(gx, gy, chunk);
+                    tiles[index] = sample.tile;
+                }
+            }
+
+            BoundsInt bounds = new BoundsInt(0, 0, 0, chunkSize, chunkSize, 1);
+            chunk.tilemap.SetTilesBlock(bounds, tiles);
+        }
+
+        /// <summary>
+        /// 오브젝트 생성 (하위 클래스에서 구현)
+        /// </summary>
+        protected abstract void GenerateObjectsForChunk(Chunk chunk);
+
+        protected virtual System.Collections.IEnumerator GenerateObjectsForChunkAsync(Chunk chunk)
+        {
+            GenerateObjectsForChunk(chunk);
+            yield break;
+        }
+
+        private void UpdateObjectChunks(Vector2Int playerChunk)
+        {
+            if (chunks == null) return;
+
+            HashSet<Vector2Int> objectsToLoad = new HashSet<Vector2Int>();
+            for (int dx = -objectLoadDistance; dx <= objectLoadDistance; dx++)
+            {
+                for (int dy = -objectLoadDistance; dy <= objectLoadDistance; dy++)
+                {
+                    int cx = playerChunk.x + dx;
+                    int cy = playerChunk.y + dy;
+                    if (IsValidChunk(cx, cy))
+                    {
+                        Vector2Int pos = new Vector2Int(cx, cy);
+                        if (loadedChunks.Contains(pos))
                         {
-                            localX = lx,
-                            localY = ly,
-                            tileType = (int)tileMap[gx, gy].tileType,
-                            isWalkable = tileMap[gx, gy].isWalkable,
-                            spriteKey = GetTileSpriteKey(tileMap[gx, gy])
-                        };
-                        saveData.tiles.Add(tileData);
+                            objectsToLoad.Add(pos);
+                        }
                     }
                 }
             }
 
-            // 오브젝트 데이터 저장
-            foreach (var objData in chunk.objectDataList)
+            foreach (var chunkPos in loadedChunks)
             {
-                saveData.objects.Add(objData);
+                Chunk chunk = chunks[chunkPos.x, chunkPos.y];
+                int dist = Mathf.Max(Mathf.Abs(chunkPos.x - playerChunk.x), Mathf.Abs(chunkPos.y - playerChunk.y));
+                if (dist > objectUnloadDistance)
+                {
+                    UnloadChunkObjects(chunk);
+                }
+                else if (objectsToLoad.Contains(chunkPos))
+                {
+                    LoadChunkObjects(chunk);
+                }
+            }
+        }
+
+        private void LoadChunkObjects(Chunk chunk)
+        {
+            if (chunk.isObjectsLoaded || chunk.objectGenerationRoutine != null) return;
+
+            chunk.objectGenerationRoutine = StartCoroutine(GenerateObjectsRoutine(chunk));
+            Debug.Log($"[BiomeManager] 오브젝트 로드 예약: ({chunk.chunkX}, {chunk.chunkY})");
+        }
+
+        private System.Collections.IEnumerator GenerateObjectsRoutine(Chunk chunk)
+        {
+            System.Collections.IEnumerator inner = GenerateObjectsForChunkAsync(chunk);
+            while (inner.MoveNext())
+            {
+                yield return inner.Current;
             }
 
-            ChunkSaveSystem.SaveChunk(biomeType, chunkX, chunkY, saveData);
+            chunk.isObjectsLoaded = true;
+            chunk.objectGenerationRoutine = null;
+        }
+
+        private void UnloadChunkObjects(Chunk chunk)
+        {
+            if (!chunk.isObjectsLoaded && chunk.objectGenerationRoutine == null) return;
+
+            if (chunk.objectGenerationRoutine != null)
+            {
+                StopCoroutine(chunk.objectGenerationRoutine);
+                chunk.objectGenerationRoutine = null;
+            }
+
+            DestroyChunkObjects(chunk);
+            chunk.isObjectsLoaded = false;
+            Debug.Log($"[BiomeManager] 오브젝트 언로드: ({chunk.chunkX}, {chunk.chunkY})");
         }
 
         /// <summary>
-        /// 청크 복원
+        /// 타일 샘플링 (저장된 변경사항 우선)
         /// </summary>
-        protected virtual void RestoreChunk(Chunk chunk, ChunkSaveData saveData)
+        protected virtual TileSample SampleTile(int worldX, int worldY, Chunk chunk)
         {
-            int startX = chunk.chunkX * chunkSize;
-            int startY = chunk.chunkY * chunkSize;
-
-            // 타일 복원
-            foreach (var tileData in saveData.tiles)
+            Vector2Int pos = new Vector2Int(worldX, worldY);
+            if (chunk.modifiedTiles.TryGetValue(pos, out BiomeTileType overrideType))
             {
-                int gx = startX + tileData.localX;
-                int gy = startY + tileData.localY;
-
-                if (IsValidPosition(gx, gy))
-                {
-                    Sprite sprite = GetSpriteByKey(tileData.spriteKey);
-                    BiomeTile tile = new BiomeTile((BiomeTileType)tileData.tileType, tileData.isWalkable, sprite);
-                    tileMap[gx, gy] = tile;
-                    PlaceTile(gx, gy, tile, chunk);
-                }
+                return CreateTileSample(overrideType);
             }
 
-            // 오브젝트 복원
-            foreach (var objData in saveData.objects)
+            return SampleBaseTile(worldX, worldY);
+        }
+
+        protected TileSample CreateTileSample(BiomeTileType tileType)
+        {
+            return new TileSample(tileType, GetTileAsset(tileType), IsTileWalkable(tileType));
+        }
+
+        protected abstract TileSample SampleBaseTile(int worldX, int worldY);
+        protected abstract TileBase GetTileAsset(BiomeTileType tileType);
+
+        protected virtual bool IsTileWalkable(BiomeTileType tileType)
+        {
+            return tileType != BiomeTileType.Wall && tileType != BiomeTileType.Obstacle;
+        }
+
+        /// <summary>
+        /// 청크 저장 (변화만)
+        /// </summary>
+        protected virtual void SaveChunk(Chunk chunk)
+        {
+            ChunkSaveData saveData = new ChunkSaveData
             {
-                if (!objData.isDestroyed && !objData.isCollected)
+                chunkX = chunk.chunkX,
+                chunkY = chunk.chunkY,
+                seed = seed
+            };
+
+            foreach (var kvp in chunk.modifiedObjects)
+            {
+                ObjectId id = kvp.Key;
+                ObjectStateDelta state = kvp.Value;
+
+                ObjectStateData objData = new ObjectStateData
                 {
-                    int gx = startX + objData.localX;
-                    int gy = startY + objData.localY;
-                    RestoreObject(gx, gy, objData, chunk);
-                }
+                    worldX = id.x,
+                    worldY = id.y,
+                    objectType = id.type,
+                    isDestroyed = state.isDestroyed,
+                    isCollected = state.isCollected
+                };
+                saveData.objectStates.Add(objData);
             }
 
-            chunk.isGenerated = true;
-            chunk.objectDataList = new List<ObjectSaveData>(saveData.objects);
+            foreach (var kvp in chunk.modifiedTiles)
+            {
+                Vector2Int pos = kvp.Key;
+                BiomeTileType type = kvp.Value;
+
+                TileDeltaData tileData = new TileDeltaData
+                {
+                    worldX = pos.x,
+                    worldY = pos.y,
+                    tileType = (int)type
+                };
+                saveData.tileDeltas.Add(tileData);
+            }
+
+            if (saveData.objectStates.Count == 0 && saveData.tileDeltas.Count == 0)
+            {
+                ChunkSaveSystem.DeleteChunk(biomeType, chunk.chunkX, chunk.chunkY);
+                return;
+            }
+
+            ChunkSaveSystem.SaveChunk(biomeType, chunk.chunkX, chunk.chunkY, saveData);
         }
 
         /// <summary>
@@ -389,38 +570,102 @@ namespace Necrocis
         /// </summary>
         protected virtual void DestroyChunkObjects(Chunk chunk)
         {
-            foreach (var go in chunk.tileObjects)
+            foreach (var state in chunk.objectStates)
             {
-                if (go != null) Destroy(go);
+                if (state != null)
+                {
+                    state.SuppressDestroy();
+                    if (state.BlocksMovement)
+                    {
+                        blockedCells.Remove(new Vector2Int(state.ObjectId.x, state.ObjectId.y));
+                    }
+                    ReleasePooledObject(state.ObjectId.type, state.gameObject);
+                }
             }
-            chunk.tileObjects.Clear();
 
-            foreach (var go in chunk.gameObjects)
-            {
-                if (go != null) Destroy(go);
-            }
             chunk.gameObjects.Clear();
+            chunk.objectStates.Clear();
         }
 
-        /// <summary>
-        /// 타일 배치 (청크 추적 포함)
-        /// </summary>
-        protected abstract void PlaceTile(int x, int y, BiomeTile tile, Chunk chunk);
+        protected void RegisterObject(Chunk chunk, GameObject obj, ObjectId id, bool blocksMovement)
+        {
+            chunk.gameObjects.Add(obj);
 
-        /// <summary>
-        /// 오브젝트 복원 (하위 클래스에서 구현)
-        /// </summary>
-        protected abstract void RestoreObject(int x, int y, ObjectSaveData objData, Chunk chunk);
+            if (blocksMovement)
+            {
+                blockedCells.Add(new Vector2Int(id.x, id.y));
+            }
 
-        /// <summary>
-        /// 타일 스프라이트 키 가져오기 (하위 클래스에서 구현)
-        /// </summary>
-        protected abstract string GetTileSpriteKey(BiomeTile tile);
+            BiomeObjectState state = obj.GetComponent<BiomeObjectState>();
+            if (state == null)
+            {
+                state = obj.AddComponent<BiomeObjectState>();
+            }
+            state.Initialize(this, new Vector2Int(chunk.chunkX, chunk.chunkY), id, blocksMovement);
+            chunk.objectStates.Add(state);
+        }
 
-        /// <summary>
-        /// 스프라이트 키로 스프라이트 가져오기 (하위 클래스에서 구현)
-        /// </summary>
-        protected abstract Sprite GetSpriteByKey(string key);
+        protected GameObject GetPooledObject(int poolKey, System.Func<GameObject> createFunc)
+        {
+            if (!objectPool.TryGetValue(poolKey, out Stack<GameObject> stack))
+            {
+                stack = new Stack<GameObject>();
+                objectPool[poolKey] = stack;
+            }
+
+            if (stack.Count > 0)
+            {
+                GameObject obj = stack.Pop();
+                if (obj != null)
+                {
+                    obj.SetActive(true);
+                    Debug.Log($"[BiomePool] 재사용: type={poolKey} name={obj.name}");
+                    return obj;
+                }
+            }
+
+            GameObject created = createFunc();
+            Debug.Log($"[BiomePool] 생성: type={poolKey} name={created.name}");
+            return created;
+        }
+
+        protected void ReleasePooledObject(int poolKey, GameObject obj)
+        {
+            if (obj == null) return;
+
+            if (!objectPool.TryGetValue(poolKey, out Stack<GameObject> stack))
+            {
+                stack = new Stack<GameObject>();
+                objectPool[poolKey] = stack;
+            }
+
+            obj.SetActive(false);
+            obj.transform.SetParent(pooledObjectsParent, false);
+            stack.Push(obj);
+            Debug.Log($"[BiomePool] 반환: type={poolKey} name={obj.name}");
+        }
+
+        internal void NotifyObjectStateChanged(Vector2Int chunkCoord, ObjectId id, bool destroyed, bool collected)
+        {
+            if (!IsValidChunk(chunkCoord.x, chunkCoord.y)) return;
+
+            Chunk chunk = chunks[chunkCoord.x, chunkCoord.y];
+            chunk.modifiedObjects[id] = new ObjectStateDelta(destroyed, collected);
+
+            if (destroyed || collected)
+            {
+                blockedCells.Remove(new Vector2Int(id.x, id.y));
+            }
+        }
+
+        protected bool IsObjectSuppressed(Chunk chunk, ObjectId id)
+        {
+            if (chunk.modifiedObjects.TryGetValue(id, out ObjectStateDelta state))
+            {
+                return state.isDestroyed || state.isCollected;
+            }
+            return false;
+        }
 
         /// <summary>
         /// 유효한 청크인지 확인
@@ -472,7 +717,16 @@ namespace Necrocis
         public bool IsWalkable(int x, int y)
         {
             if (!IsValidPosition(x, y)) return false;
-            return tileMap[x, y] != null && tileMap[x, y].isWalkable;
+            if (blockedCells.Contains(new Vector2Int(x, y))) return false;
+
+            Vector2Int chunkCoord = GridToChunk(x, y);
+            if (IsValidChunk(chunkCoord.x, chunkCoord.y) && chunks != null)
+            {
+                TileSample sample = SampleTile(x, y, chunks[chunkCoord.x, chunkCoord.y]);
+                return sample.walkable;
+            }
+
+            return SampleBaseTile(x, y).walkable;
         }
 
         /// <summary>
@@ -498,8 +752,79 @@ namespace Necrocis
         {
             foreach (var chunkPos in loadedChunks)
             {
-                SaveChunk(chunkPos.x, chunkPos.y);
+                Chunk chunk = chunks[chunkPos.x, chunkPos.y];
+                SaveChunk(chunk);
             }
+        }
+    }
+
+    /// <summary>
+    /// 타일 샘플 결과
+    /// </summary>
+    public struct TileSample
+    {
+        public BiomeTileType tileType;
+        public TileBase tile;
+        public bool walkable;
+
+        public TileSample(BiomeTileType tileType, TileBase tile, bool walkable)
+        {
+            this.tileType = tileType;
+            this.tile = tile;
+            this.walkable = walkable;
+        }
+    }
+
+    /// <summary>
+    /// 오브젝트 식별자 (결정론)
+    /// </summary>
+    public struct ObjectId
+    {
+        public int x;
+        public int y;
+        public int type;
+
+        public ObjectId(int x, int y, int type)
+        {
+            this.x = x;
+            this.y = y;
+            this.type = type;
+        }
+
+        public override int GetHashCode()
+        {
+            unchecked
+            {
+                int hash = 17;
+                hash = hash * 31 + x;
+                hash = hash * 31 + y;
+                hash = hash * 31 + type;
+                return hash;
+            }
+        }
+
+        public override bool Equals(object obj)
+        {
+            if (obj is ObjectId other)
+            {
+                return x == other.x && y == other.y && type == other.type;
+            }
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// 오브젝트 변경 상태
+    /// </summary>
+    public struct ObjectStateDelta
+    {
+        public bool isDestroyed;
+        public bool isCollected;
+
+        public ObjectStateDelta(bool destroyed, bool collected)
+        {
+            isDestroyed = destroyed;
+            isCollected = collected;
         }
     }
 
@@ -512,42 +837,30 @@ namespace Necrocis
         public int chunkX;
         public int chunkY;
         public int size;
-        public bool isGenerated;
         public bool isLoaded;
+        public bool hasLoadedSave;
+        public bool isObjectsLoaded;
 
-        // 청크 내 게임오브젝트
-        public List<GameObject> tileObjects = new List<GameObject>();
+        public GameObject root;
+        public Tilemap tilemap;
+        public TilemapRenderer tilemapRenderer;
+
+        public Coroutine objectGenerationRoutine;
+
         public List<GameObject> gameObjects = new List<GameObject>();
+        public List<BiomeObjectState> objectStates = new List<BiomeObjectState>();
 
-        // 오브젝트 상태 데이터
-        public List<ObjectSaveData> objectDataList = new List<ObjectSaveData>();
+        public Dictionary<ObjectId, ObjectStateDelta> modifiedObjects = new Dictionary<ObjectId, ObjectStateDelta>();
+        public Dictionary<Vector2Int, BiomeTileType> modifiedTiles = new Dictionary<Vector2Int, BiomeTileType>();
 
         public Chunk(int x, int y, int size)
         {
-            this.chunkX = x;
-            this.chunkY = y;
+            chunkX = x;
+            chunkY = y;
             this.size = size;
-            this.isGenerated = false;
-            this.isLoaded = false;
-        }
-    }
-
-    /// <summary>
-    /// 바이옴 타일 데이터
-    /// </summary>
-    [System.Serializable]
-    public class BiomeTile
-    {
-        public BiomeTileType tileType;
-        public bool isWalkable;
-        public Sprite sprite;
-        public GameObject tileObject;
-
-        public BiomeTile(BiomeTileType type, bool walkable = true, Sprite spr = null)
-        {
-            tileType = type;
-            isWalkable = walkable;
-            sprite = spr;
+            isLoaded = false;
+            hasLoadedSave = false;
+            isObjectsLoaded = false;
         }
     }
 

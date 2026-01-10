@@ -96,8 +96,25 @@ namespace Necrocis
             // 재단 생성
             SetupAltar();
 
+            AdjustPlayerHeight();
+
             isGenerated = true;
             Debug.Log("[HubRoom] 중간방 생성 완료!");
+        }
+
+        private void AdjustPlayerHeight()
+        {
+            PlayerController player = PlayerController.Instance;
+            if (player == null)
+            {
+                player = FindFirstObjectByType<PlayerController>();
+            }
+
+            if (player == null) return;
+
+            Vector3 pos = player.transform.position;
+            pos.y = -2f;
+            player.transform.position = pos;
         }
 
         /// <summary>

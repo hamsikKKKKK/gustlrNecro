@@ -29,6 +29,10 @@ namespace Necrocis
         [SerializeField] private float idleFrameRate = 4f;   // 대기 애니메이션 속도
         [SerializeField] private float walkFrameRate = 8f;   // 이동 애니메이션 속도
 
+        [Header("위치 고정")]
+        [SerializeField] private bool lockYPosition = false;
+        [SerializeField] private float lockedY = -2f;
+
         // 방향
         public enum Direction { Down, Up, Left, Right }
         private Direction currentDirection = Direction.Down;
@@ -116,6 +120,7 @@ namespace Necrocis
         private void FixedUpdate()
         {
             Move();
+            ApplyLockedY();
         }
 
         /// <summary>
@@ -314,6 +319,49 @@ namespace Necrocis
                 transform.position = position;
                 characterController.enabled = true;
             }
+
+            ApplyLockedY();
+        }
+
+        public void LockY(float y)
+        {
+            lockYPosition = true;
+            lockedY = y;
+            ApplyLockedY();
+        }
+
+        public void UnlockY()
+        {
+            lockYPosition = false;
+        }
+
+        private void ApplyLockedY()
+        {
+            if (!lockYPosition) return;
+
+            if (characterController != null)
+            {
+                Vector3 pos = transform.position;
+                pos.y = lockedY;
+                transform.position = pos;
+                return;
+            }
+
+            if (rb != null)
+            {
+                Vector3 pos = rb.position;
+                pos.y = lockedY;
+                rb.position = pos;
+
+                Vector3 vel = rb.linearVelocity;
+                vel.y = 0f;
+                rb.linearVelocity = vel;
+                return;
+            }
+
+            Vector3 fallback = transform.position;
+            fallback.y = lockedY;
+            transform.position = fallback;
         }
 
         /// <summary>

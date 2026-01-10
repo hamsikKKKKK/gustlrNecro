@@ -5,7 +5,7 @@ using System.IO;
 namespace Necrocis
 {
     /// <summary>
-    /// 청크 저장/로드 시스템
+    /// 청크 저장/로드 시스템 (변화만 저장)
     /// </summary>
     public static class ChunkSaveSystem
     {
@@ -44,6 +44,18 @@ namespace Necrocis
         }
 
         /// <summary>
+        /// 청크 데이터 삭제
+        /// </summary>
+        public static void DeleteChunk(BiomeType biome, int chunkX, int chunkY)
+        {
+            string filePath = Path.Combine(SavePath, biome.ToString(), $"chunk_{chunkX}_{chunkY}.json");
+            if (File.Exists(filePath))
+            {
+                File.Delete(filePath);
+            }
+        }
+
+        /// <summary>
         /// 청크가 저장되어 있는지 확인
         /// </summary>
         public static bool HasSavedChunk(BiomeType biome, int chunkX, int chunkY)
@@ -77,7 +89,7 @@ namespace Necrocis
     }
 
     /// <summary>
-    /// 청크 저장 데이터
+    /// 청크 저장 데이터 (변화만)
     /// </summary>
     [System.Serializable]
     public class ChunkSaveData
@@ -85,39 +97,35 @@ namespace Necrocis
         public int chunkX;
         public int chunkY;
         public int seed;
-        public bool isGenerated;
 
-        // 타일 데이터 (직렬화용)
-        public List<TileSaveData> tiles = new List<TileSaveData>();
+        // 타일 변경 사항
+        public List<TileDeltaData> tileDeltas = new List<TileDeltaData>();
 
-        // 오브젝트 데이터 (직렬화용)
-        public List<ObjectSaveData> objects = new List<ObjectSaveData>();
+        // 오브젝트 변경 사항
+        public List<ObjectStateData> objectStates = new List<ObjectStateData>();
     }
 
     /// <summary>
-    /// 타일 저장 데이터
+    /// 타일 변경 데이터
     /// </summary>
     [System.Serializable]
-    public class TileSaveData
+    public class TileDeltaData
     {
-        public int localX;  // 청크 내 로컬 좌표
-        public int localY;
+        public int worldX;
+        public int worldY;
         public int tileType;
-        public bool isWalkable;
-        public string spriteKey;  // 스프라이트 식별자
     }
 
     /// <summary>
-    /// 오브젝트 저장 데이터
+    /// 오브젝트 변경 데이터
     /// </summary>
     [System.Serializable]
-    public class ObjectSaveData
+    public class ObjectStateData
     {
-        public int localX;
-        public int localY;
+        public int worldX;
+        public int worldY;
         public int objectType;
-        public string spriteKey;
-        public bool isDestroyed;  // 파괴되었는지
-        public bool isCollected;  // 수집되었는지 (아이템)
+        public bool isDestroyed;
+        public bool isCollected;
     }
 }

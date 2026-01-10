@@ -19,6 +19,7 @@ namespace Necrocis
         public const string SCENE_LUNG = "Biome_Lung";
 
         private bool isLoading = false;
+        private bool forceHubRespawn = false;
 
         private void Awake()
         {
@@ -64,6 +65,7 @@ namespace Necrocis
         public void ReturnToHub()
         {
             if (isLoading) return;
+            forceHubRespawn = true;
             StartCoroutine(LoadSceneAsync(SCENE_HUB));
         }
 
@@ -89,6 +91,23 @@ namespace Necrocis
             Debug.Log($"[SceneLoader] {sceneName} 씬 로딩 완료!");
 
             isLoading = false;
+
+            if (sceneName == SCENE_HUB && forceHubRespawn)
+            {
+                forceHubRespawn = false;
+                yield return null;
+
+                PlayerController player = PlayerController.Instance;
+                if (player == null)
+                {
+                    player = FindFirstObjectByType<PlayerController>();
+                }
+
+                if (player != null)
+                {
+                    player.SpawnAt(new Vector3(16f, -2f, 7f));
+                }
+            }
 
             // TODO: 페이드 인 효과 추가 가능
         }

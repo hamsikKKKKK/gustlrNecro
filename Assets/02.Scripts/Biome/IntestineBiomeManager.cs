@@ -1,18 +1,18 @@
 using UnityEngine;
+using UnityEngine.Tilemaps;
 using System.Collections.Generic;
 
 namespace Necrocis
 {
     /// <summary>
-    /// 장(Intestine) 바이옴 맵 생성기 (청크 기반 오픈월드)
+    /// 장(Intestine) 바이옴 맵 생성기 (Tilemap + Voronoi/Perlin + Poisson)
     /// </summary>
     public class IntestineBiomeManager : BiomeManager
     {
-        [Header("=== 장 바이옴 스프라이트 ===")]
-        [Header("바닥 타일")]
-        [SerializeField] private Sprite mudTile1;                 // 진흙바닥재 (텍스처)
-        [SerializeField] private Sprite mudTile2;                 // 진흙타일맵 (구멍 패턴)
-        [SerializeField] private Sprite mossTile;                 // 이끼바닥재 (특정 구역)
+        [Header("=== 장 바이옴 타일 ===")]
+        [SerializeField] private TileBase mudTile1;   // 기본 진흙
+        [SerializeField] private TileBase mudTile2;   // 진흙 변형
+        [SerializeField] private TileBase mossTile;   // 이끼
 
         [Header("바닥 장식 (통과 가능)")]
         [SerializeField] private Sprite slimePuddleLarge;         // 점액웅덩이 (큰)
@@ -24,6 +24,10 @@ namespace Necrocis
         [Header("큰 장식물 (통과 불가)")]
         [SerializeField] private Sprite rock;                     // 바위
         [SerializeField] private Sprite moldTree;                 // 곰팡나무
+        [SerializeField, HideInInspector] private Vector3 rockColliderSize = new Vector3(1.5f, 3f, 1.5f);
+        [SerializeField, HideInInspector] private Vector3 rockColliderCenter = new Vector3(0, 1.5f, 0);
+        [SerializeField, HideInInspector] private Vector3 moldTreeColliderSize = new Vector3(1.5f, 3f, 1.5f);
+        [SerializeField, HideInInspector] private Vector3 moldTreeColliderCenter = new Vector3(0, 1.5f, 0);
 
         [Header("애니메이션 장식물")]
         [SerializeField] private Sprite[] parasiteFrames;         // 기생충 (6프레임)
@@ -43,30 +47,79 @@ namespace Necrocis
         [SerializeField] private float parasiteDensity = 0.01f;
         [SerializeField] private float itemDensity = 0.005f;
 
-        [Header("노이즈 설정")]
-        [SerializeField] private float mudNoiseScale = 0.05f;
-        [SerializeField] private float mudNoiseThreshold = 0.4f;
-        [SerializeField] private float mossNoiseScale = 0.03f;
-        [SerializeField] private float mossNoiseThreshold = 0.7f;
+        [Header("=== 오브젝트 최소 거리 (타일 기준) ===")]
+        [SerializeField] private float slimePuddleMinDistance = 2f;
+        [SerializeField] private float moldPlantMinDistance = 2f;
+        [SerializeField] private float rockMinDistance = 3f;
+        [SerializeField] private float moldTreeMinDistance = 4f;
+        [SerializeField] private float parasiteMinDistance = 3f;
+        [SerializeField] private float itemMinDistance = 2f;
+
+        [Header("=== Voronoi/Perlin ===")]
+        [SerializeField] private float regionCellSize = 20f;      // Voronoi 셀 크기
+        [SerializeField] private float regionBlendWidth = 3f;     // 경계 블렌딩 폭 (타일)
+        [SerializeField] private float detailNoiseScale = 0.05f;  // Perlin 스케일
+        [SerializeField] private float mudVariantThreshold = 0.5f;
+        [SerializeField] private float mossMixThreshold = 0.2f;
+        [SerializeField] private float fleshVariantThreshold = 0.5f;
 
         // 노이즈 생성기
-        private FastNoiseLite mudNoise;
-        private FastNoiseLite mossNoise;
+        private FastNoiseLite detailNoise;
+        private readonly List<ObjectRule> objectRules = new List<ObjectRule>();
 
-        // 귀환 포털 생성됨
-        private bool returnPortalPlaced = false;
+        private const int RegionCount = 3;
+        private const int GroundDecorationOrder = 100;
 
-        // 스프라이트 키 상수
-        private const string KEY_MUD1 = "mud1";
-        private const string KEY_MUD2 = "mud2";
-        private const string KEY_MOSS = "moss";
-        private const string KEY_PUDDLE_LARGE = "puddle_large";
-        private const string KEY_PUDDLE_SMALL = "puddle_small";
-        private const string KEY_MOLD_PLANT = "mold_plant";
-        private const string KEY_ROCK = "rock";
-        private const string KEY_MOLD_TREE = "mold_tree";
-        private const string KEY_PARASITE = "parasite";
-        private const string KEY_ITEM = "item";
+        private enum RegionType
+        {
+            Mud = 0,
+            Moss = 1,
+            Flesh = 2
+        }
+
+        private enum ObjectKind
+        {
+            SlimePuddle = 1,
+            MoldPlant = 2,
+            Rock = 3,
+            MoldTree = 4,
+            Parasite = 5,
+            Item = 6,
+            ReturnPortal = 100
+        }
+
+        [System.Flags]
+        private enum RegionMask
+        {
+            Mud = 1 << 0,
+            Moss = 1 << 1,
+            Flesh = 1 << 2,
+            All = Mud | Moss | Flesh
+        }
+
+        private struct RegionSample
+        {
+            public int primary;
+            public int secondary;
+            public float blend;
+
+            public RegionSample(int primary, int secondary, float blend)
+            {
+                this.primary = primary;
+                this.secondary = secondary;
+                this.blend = blend;
+            }
+        }
+
+        private struct ObjectRule
+        {
+            public ObjectKind kind;
+            public float density;
+            public float minDistance;
+            public bool blocksMovement;
+            public RegionMask regionMask;
+            public int salt;
+        }
 
         protected override void Awake()
         {
@@ -76,43 +129,86 @@ namespace Necrocis
             // 장 바이옴 크기
             mapWidth = 90;
             mapHeight = 90;
-            chunkSize = 16;
 
             base.Awake();
 
             // 노이즈 초기화
-            mudNoise = new FastNoiseLite(seed);
-            mudNoise.SetNoiseType(FastNoiseLite.NoiseType.Perlin);
-            mudNoise.SetFrequency(mudNoiseScale);
+            detailNoise = new FastNoiseLite(seed);
+            detailNoise.SetNoiseType(FastNoiseLite.NoiseType.Perlin);
+            detailNoise.SetFrequency(detailNoiseScale);
 
-            mossNoise = new FastNoiseLite(seed + 1000);
-            mossNoise.SetNoiseType(FastNoiseLite.NoiseType.Perlin);
-            mossNoise.SetFrequency(mossNoiseScale);
+            BuildObjectRules();
         }
 
         protected override void Start()
         {
             base.Start();
-
-            // 귀환 포털 배치 (스폰 청크에)
-            PlaceReturnPortal();
         }
 
-        /// <summary>
-        /// 청크 생성
-        /// </summary>
-        protected override void GenerateChunk(int chunkX, int chunkY)
+        protected override TileSample SampleBaseTile(int worldX, int worldY)
         {
-            Chunk chunk = chunks[chunkX, chunkY];
-            if (chunk.isGenerated) return;
+            RegionSample region = SampleRegion(worldX, worldY);
+            int regionType = ResolveRegionType(region, worldX, worldY);
 
-            int startX = chunkX * chunkSize;
-            int startY = chunkY * chunkSize;
+            float detailValue = (detailNoise.GetNoise(worldX, worldY) + 1f) * 0.5f;
 
-            // 청크별 랜덤 시드 (일관성 유지)
-            Random.InitState(seed + chunkX * 1000 + chunkY);
+            switch ((RegionType)regionType)
+            {
+                case RegionType.Moss:
+                    if (detailValue < mossMixThreshold)
+                    {
+                        return new TileSample(BiomeTileType.Floor, mudTile1, true);
+                    }
+                    return new TileSample(BiomeTileType.Decoration, mossTile, true);
 
-            // 1. 바닥 타일 생성
+                case RegionType.Flesh:
+                    if (detailValue < fleshVariantThreshold)
+                    {
+                        return new TileSample(BiomeTileType.Floor, mudTile1, true);
+                    }
+                    return new TileSample(BiomeTileType.FloorVariant, mudTile2, true);
+
+                default:
+                    if (detailValue < mudVariantThreshold)
+                    {
+                        return new TileSample(BiomeTileType.Floor, mudTile1, true);
+                    }
+                    return new TileSample(BiomeTileType.FloorVariant, mudTile2, true);
+            }
+        }
+
+        protected override TileBase GetTileAsset(BiomeTileType tileType)
+        {
+            return tileType switch
+            {
+                BiomeTileType.Decoration => mossTile,
+                BiomeTileType.FloorVariant => mudTile2,
+                _ => mudTile1
+            };
+        }
+
+        protected override void GenerateObjectsForChunk(Chunk chunk)
+        {
+            var enumerator = GenerateObjectsInternal(chunk);
+            while (enumerator.MoveNext())
+            {
+            }
+        }
+
+        protected override System.Collections.IEnumerator GenerateObjectsForChunkAsync(Chunk chunk)
+        {
+            return GenerateObjectsInternal(chunk);
+        }
+
+        private System.Collections.IEnumerator GenerateObjectsInternal(Chunk chunk)
+        {
+            int startX = chunk.chunkX * chunkSize;
+            int startY = chunk.chunkY * chunkSize;
+
+            HashSet<Vector2Int> occupied = new HashSet<Vector2Int>();
+            int processed = 0;
+            int budget = Mathf.Max(16, objectGenerationBudget);
+
             for (int lx = 0; lx < chunkSize; lx++)
             {
                 for (int ly = 0; ly < chunkSize; ly++)
@@ -121,458 +217,428 @@ namespace Necrocis
                     int gy = startY + ly;
 
                     if (!IsValidPosition(gx, gy)) continue;
+                    if (!IsObjectAreaAllowed(gx, gy)) continue;
 
-                    GenerateTileAt(gx, gy, chunk);
+                    int regionType = GetRegionTypeForObjects(gx, gy);
+                    Vector2Int pos = new Vector2Int(gx, gy);
+
+                    foreach (var rule in objectRules)
+                    {
+                        if (occupied.Contains(pos)) break;
+                        if (!IsRegionAllowed(rule.regionMask, regionType)) continue;
+
+                        if (!IsPoissonSelected(gx, gy, rule))
+                        {
+                            continue;
+                        }
+
+                        ObjectId id = new ObjectId(gx, gy, (int)rule.kind);
+                        if (IsObjectSuppressed(chunk, id))
+                        {
+                            continue;
+                        }
+
+                        SpawnObject(rule, gx, gy, chunk, id);
+                        occupied.Add(pos);
+                        break;
+                    }
+
+                    processed++;
+                    if (processed >= budget)
+                    {
+                        processed = 0;
+                        yield return null;
+                    }
                 }
             }
 
-            // 2. 오브젝트 생성
-            for (int lx = 0; lx < chunkSize; lx++)
-            {
-                for (int ly = 0; ly < chunkSize; ly++)
-                {
-                    int gx = startX + lx;
-                    int gy = startY + ly;
-
-                    if (!IsValidPosition(gx, gy)) continue;
-
-                    // 가장자리 & 스폰 영역 제외
-                    if (gx < 5 || gx >= mapWidth - 5 || gy < 10 || gy >= mapHeight - 5)
-                        continue;
-
-                    GenerateObjectAt(gx, gy, lx, ly, chunk);
-                }
-            }
-
-            chunk.isGenerated = true;
-            Debug.Log($"[IntestineBiome] 청크 ({chunkX}, {chunkY}) 생성 완료");
+            TryPlaceReturnPortal(chunk);
         }
 
-        /// <summary>
-        /// 타일 생성
-        /// </summary>
-        private void GenerateTileAt(int gx, int gy, Chunk chunk)
+        private void BuildObjectRules()
         {
-            float mossValue = (mossNoise.GetNoise(gx, gy) + 1f) / 2f;
-            float mudValue = (mudNoise.GetNoise(gx, gy) + 1f) / 2f;
-
-            Sprite floorSprite;
-            BiomeTileType tileType;
-
-            if (mossValue >= mossNoiseThreshold)
+            objectRules.Clear();
+            objectRules.Add(new ObjectRule
             {
-                floorSprite = mossTile;
-                tileType = BiomeTileType.Decoration;
+                kind = ObjectKind.MoldTree,
+                density = moldTreeDensity,
+                minDistance = moldTreeMinDistance,
+                blocksMovement = true,
+                regionMask = RegionMask.Moss,
+                salt = 101
+            });
+            objectRules.Add(new ObjectRule
+            {
+                kind = ObjectKind.Rock,
+                density = rockDensity,
+                minDistance = rockMinDistance,
+                blocksMovement = true,
+                regionMask = RegionMask.Mud,
+                salt = 102
+            });
+            objectRules.Add(new ObjectRule
+            {
+                kind = ObjectKind.Parasite,
+                density = parasiteDensity,
+                minDistance = parasiteMinDistance,
+                blocksMovement = false,
+                regionMask = RegionMask.Flesh,
+                salt = 103
+            });
+            objectRules.Add(new ObjectRule
+            {
+                kind = ObjectKind.SlimePuddle,
+                density = slimePuddleDensity,
+                minDistance = slimePuddleMinDistance,
+                blocksMovement = false,
+                regionMask = RegionMask.Mud | RegionMask.Flesh,
+                salt = 104
+            });
+            objectRules.Add(new ObjectRule
+            {
+                kind = ObjectKind.MoldPlant,
+                density = moldPlantDensity,
+                minDistance = moldPlantMinDistance,
+                blocksMovement = false,
+                regionMask = RegionMask.Moss,
+                salt = 105
+            });
+            objectRules.Add(new ObjectRule
+            {
+                kind = ObjectKind.Item,
+                density = itemDensity,
+                minDistance = itemMinDistance,
+                blocksMovement = false,
+                regionMask = RegionMask.All,
+                salt = 106
+            });
+        }
+
+        private bool IsObjectAreaAllowed(int x, int y)
+        {
+            if (x < 5 || x >= mapWidth - 5 || y < 10 || y >= mapHeight - 5)
+            {
+                return false;
             }
-            else if (mudValue >= mudNoiseThreshold)
+            return true;
+        }
+
+        private void SpawnObject(ObjectRule rule, int x, int y, Chunk chunk, ObjectId id)
+        {
+            switch (rule.kind)
             {
-                floorSprite = mudTile2;
-                tileType = BiomeTileType.FloorVariant;
+                case ObjectKind.SlimePuddle:
+                    PlaceSlimePuddle(x, y, chunk, id, rule.blocksMovement);
+                    break;
+                case ObjectKind.MoldPlant:
+                    PlaceSmallDecoration(x, y, moldPlant, "MoldPlant", chunk, id, rule.blocksMovement);
+                    break;
+                case ObjectKind.Rock:
+                    PlaceLargeObstacle(x, y, rock, "Rock", chunk, id, rule.blocksMovement);
+                    break;
+                case ObjectKind.MoldTree:
+                    PlaceLargeObstacle(x, y, moldTree, "MoldTree", chunk, id, rule.blocksMovement);
+                    break;
+                case ObjectKind.Parasite:
+                    PlaceParasite(x, y, chunk, id, rule.blocksMovement);
+                    break;
+                case ObjectKind.Item:
+                    PlaceItem(x, y, chunk, id, rule.blocksMovement);
+                    break;
+            }
+        }
+
+        private GameObject AcquireObject(ObjectKind kind, string name)
+        {
+            GameObject obj = GetPooledObject((int)kind, () => new GameObject(name));
+            obj.name = name;
+            obj.transform.SetParent(objectsParent);
+            obj.SetActive(true);
+            return obj;
+        }
+
+        private static T GetOrAddComponent<T>(GameObject obj) where T : Component
+        {
+            T component = obj.GetComponent<T>();
+            if (component == null)
+            {
+                component = obj.AddComponent<T>();
+            }
+            return component;
+        }
+
+        private void PlaceSlimePuddle(int x, int y, Chunk chunk, ObjectId id, bool blocksMovement)
+        {
+            bool large = BiomeDeterministic.Hash01(seed, x, y, 2001) > 0.5f;
+            Sprite sprite = large ? slimePuddleLarge : slimePuddleSmall;
+            if (sprite == null) return;
+
+            PlaceFloorDecoration(x, y, sprite, "SlimePuddle", chunk, id, blocksMovement);
+        }
+
+        private void PlaceFloorDecoration(int x, int y, Sprite sprite, string name, Chunk chunk, ObjectId id, bool blocksMovement)
+        {
+            Vector3 worldPos = GridToWorld(x, y);
+
+            GameObject obj = AcquireObject((ObjectKind)id.type, $"{name}_{x}_{y}");
+            obj.transform.position = worldPos + new Vector3(0, 0.01f, 0);
+
+            SpriteRenderer sr = GetOrAddComponent<SpriteRenderer>(obj);
+            sr.sprite = sprite;
+            sr.sortingOrder = GroundDecorationOrder;
+
+            GetOrAddComponent<Billboard>(obj);
+
+            RegisterObject(chunk, obj, id, blocksMovement);
+        }
+
+        private void PlaceSmallDecoration(int x, int y, Sprite sprite, string name, Chunk chunk, ObjectId id, bool blocksMovement)
+        {
+            if (sprite == null) return;
+
+            Vector3 worldPos = GridToWorld(x, y);
+
+            GameObject obj = AcquireObject((ObjectKind)id.type, $"{name}_{x}_{y}");
+            obj.transform.position = worldPos;
+
+            SpriteRenderer sr = GetOrAddComponent<SpriteRenderer>(obj);
+            sr.sprite = sprite;
+            sr.sortingOrder = GroundDecorationOrder;
+
+            GetOrAddComponent<Billboard>(obj);
+
+            RegisterObject(chunk, obj, id, blocksMovement);
+        }
+
+        private void PlaceLargeObstacle(int x, int y, Sprite sprite, string name, Chunk chunk, ObjectId id, bool blocksMovement)
+        {
+            if (sprite == null) return;
+
+            Vector3 worldPos = GridToWorld(x, y);
+
+            GameObject obj = AcquireObject((ObjectKind)id.type, $"{name}_{x}_{y}");
+            obj.transform.position = worldPos;
+
+            SpriteRenderer sr = GetOrAddComponent<SpriteRenderer>(obj);
+            sr.sprite = sprite;
+
+            GetOrAddComponent<Billboard>(obj);
+            GetOrAddComponent<SpriteYSort>(obj);
+
+            BoxCollider col = GetOrAddComponent<BoxCollider>(obj);
+            if (id.type == (int)ObjectKind.Rock)
+            {
+                col.size = rockColliderSize;
+                col.center = rockColliderCenter;
             }
             else
             {
-                floorSprite = mudTile1;
-                tileType = BiomeTileType.Floor;
+                col.size = moldTreeColliderSize;
+                col.center = moldTreeColliderCenter;
             }
 
-            BiomeTile tile = new BiomeTile(tileType, true, floorSprite);
-            tileMap[gx, gy] = tile;
-
-            PlaceTile(gx, gy, tile, chunk);
+            RegisterObject(chunk, obj, id, blocksMovement);
         }
 
-        /// <summary>
-        /// 오브젝트 생성
-        /// </summary>
-        private void GenerateObjectAt(int gx, int gy, int lx, int ly, Chunk chunk)
-        {
-            float roll = Random.value;
-            float cumulative = 0f;
-
-            ObjectSaveData objData = null;
-
-            // 점액웅덩이
-            cumulative += slimePuddleDensity;
-            if (roll < cumulative)
-            {
-                bool large = Random.value > 0.5f;
-                Sprite sprite = large ? slimePuddleLarge : slimePuddleSmall;
-                string key = large ? KEY_PUDDLE_LARGE : KEY_PUDDLE_SMALL;
-
-                if (sprite != null)
-                {
-                    PlaceFloorDecoration(gx, gy, sprite, "SlimePuddle", chunk);
-                    objData = new ObjectSaveData
-                    {
-                        localX = lx, localY = ly,
-                        objectType = (int)BiomeObjectType.DecorationSmall,
-                        spriteKey = key
-                    };
-                }
-            }
-
-            // 아이템
-            cumulative += itemDensity;
-            if (roll < cumulative && objData == null)
-            {
-                PlaceItem(gx, gy, chunk);
-                objData = new ObjectSaveData
-                {
-                    localX = lx, localY = ly,
-                    objectType = (int)BiomeObjectType.Item,
-                    spriteKey = KEY_ITEM
-                };
-            }
-
-            // 기생충
-            cumulative += parasiteDensity;
-            if (roll < cumulative && objData == null)
-            {
-                PlaceParasite(gx, gy, chunk);
-                objData = new ObjectSaveData
-                {
-                    localX = lx, localY = ly,
-                    objectType = (int)BiomeObjectType.InteractableDecoration,
-                    spriteKey = KEY_PARASITE
-                };
-            }
-
-            // 곰팡나무
-            cumulative += moldTreeDensity;
-            if (roll < cumulative && objData == null)
-            {
-                PlaceLargeObstacle(gx, gy, moldTree, "MoldTree", chunk);
-                objData = new ObjectSaveData
-                {
-                    localX = lx, localY = ly,
-                    objectType = (int)BiomeObjectType.DecorationLarge,
-                    spriteKey = KEY_MOLD_TREE
-                };
-            }
-
-            // 바위
-            cumulative += rockDensity;
-            if (roll < cumulative && objData == null)
-            {
-                PlaceLargeObstacle(gx, gy, rock, "Rock", chunk);
-                objData = new ObjectSaveData
-                {
-                    localX = lx, localY = ly,
-                    objectType = (int)BiomeObjectType.DecorationLarge,
-                    spriteKey = KEY_ROCK
-                };
-            }
-
-            // 곰팡식물
-            cumulative += moldPlantDensity;
-            if (roll < cumulative && objData == null)
-            {
-                PlaceSmallDecoration(gx, gy, moldPlant, "MoldPlant", chunk);
-                objData = new ObjectSaveData
-                {
-                    localX = lx, localY = ly,
-                    objectType = (int)BiomeObjectType.DecorationSmall,
-                    spriteKey = KEY_MOLD_PLANT
-                };
-            }
-
-            if (objData != null)
-            {
-                chunk.objectDataList.Add(objData);
-            }
-        }
-
-        /// <summary>
-        /// 타일 배치
-        /// </summary>
-        protected override void PlaceTile(int x, int y, BiomeTile tile, Chunk chunk)
-        {
-            if (tile.sprite == null) return;
-
-            Vector3 worldPos = GridToWorld(x, y);
-            // 타일을 Y=-0.1에 배치 (스프라이트보다 아래)
-            worldPos.y = -0.1f;
-
-            GameObject tileObj = new GameObject($"Tile_{x}_{y}");
-            tileObj.transform.SetParent(tilesParent);
-            tileObj.transform.position = worldPos;
-
-            MeshFilter mf = tileObj.AddComponent<MeshFilter>();
-            MeshRenderer mr = tileObj.AddComponent<MeshRenderer>();
-
-            mf.mesh = CreateQuadMesh();
-
-            // 타일용 셰이더 (항상 먼저 렌더링)
-            Material mat = new Material(Shader.Find("Unlit/Transparent"));
-            mat.mainTexture = tile.sprite.texture;
-            mat.renderQueue = 2000;  // Background queue
-            mr.material = mat;
-
-            tileObj.transform.rotation = Quaternion.Euler(90f, 0f, 0f);
-            tileObj.transform.localScale = new Vector3(tileSize, tileSize, 1f);
-
-            tile.tileObject = tileObj;
-            chunk.tileObjects.Add(tileObj);
-        }
-
-        /// <summary>
-        /// 바닥 장식 배치
-        /// </summary>
-        private void PlaceFloorDecoration(int x, int y, Sprite sprite, string name, Chunk chunk)
-        {
-            if (sprite == null) return;
-
-            Vector3 worldPos = GridToWorld(x, y);
-
-            GameObject obj = new GameObject($"{name}_{x}_{y}");
-            obj.transform.SetParent(objectsParent);
-            obj.transform.position = worldPos + new Vector3(0, 0.01f, 0);
-
-            SpriteRenderer sr = obj.AddComponent<SpriteRenderer>();
-            sr.sprite = sprite;
-
-            obj.AddComponent<Billboard>();
-            obj.AddComponent<SpriteYSort>();
-
-            chunk.gameObjects.Add(obj);
-        }
-
-        /// <summary>
-        /// 작은 장식물 배치
-        /// </summary>
-        private void PlaceSmallDecoration(int x, int y, Sprite sprite, string name, Chunk chunk)
-        {
-            if (sprite == null) return;
-
-            Vector3 worldPos = GridToWorld(x, y);
-
-            GameObject obj = new GameObject($"{name}_{x}_{y}");
-            obj.transform.SetParent(objectsParent);
-            obj.transform.position = worldPos;
-
-            SpriteRenderer sr = obj.AddComponent<SpriteRenderer>();
-            sr.sprite = sprite;
-
-            obj.AddComponent<Billboard>();
-            obj.AddComponent<SpriteYSort>();
-
-            chunk.gameObjects.Add(obj);
-        }
-
-        /// <summary>
-        /// 큰 장애물 배치
-        /// </summary>
-        private void PlaceLargeObstacle(int x, int y, Sprite sprite, string name, Chunk chunk)
-        {
-            if (sprite == null) return;
-
-            Vector3 worldPos = GridToWorld(x, y);
-
-            GameObject obj = new GameObject($"{name}_{x}_{y}");
-            obj.transform.SetParent(objectsParent);
-            obj.transform.position = worldPos;
-
-            SpriteRenderer sr = obj.AddComponent<SpriteRenderer>();
-            sr.sprite = sprite;
-
-            obj.AddComponent<Billboard>();
-            obj.AddComponent<SpriteYSort>();
-
-            BoxCollider col = obj.AddComponent<BoxCollider>();
-            col.size = new Vector3(1.5f, 3f, 1.5f);
-            col.center = new Vector3(0, 1.5f, 0);
-
-            if (tileMap[x, y] != null)
-                tileMap[x, y].isWalkable = false;
-
-            chunk.gameObjects.Add(obj);
-        }
-
-        /// <summary>
-        /// 기생충 배치
-        /// </summary>
-        private void PlaceParasite(int x, int y, Chunk chunk)
+        private void PlaceParasite(int x, int y, Chunk chunk, ObjectId id, bool blocksMovement)
         {
             if (parasiteFrames == null || parasiteFrames.Length == 0) return;
 
             Vector3 worldPos = GridToWorld(x, y);
 
-            GameObject obj = new GameObject($"Parasite_{x}_{y}");
-            obj.transform.SetParent(objectsParent);
+            GameObject obj = AcquireObject((ObjectKind)id.type, $"Parasite_{x}_{y}");
             obj.transform.position = worldPos;
 
-            SpriteRenderer sr = obj.AddComponent<SpriteRenderer>();
+            SpriteRenderer sr = GetOrAddComponent<SpriteRenderer>(obj);
             sr.sprite = parasiteFrames[0];
+            sr.sortingOrder = GroundDecorationOrder;
 
-            obj.AddComponent<Billboard>();
-            obj.AddComponent<SpriteYSort>();
+            GetOrAddComponent<Billboard>(obj);
 
-            AnimatedSprite anim = obj.AddComponent<AnimatedSprite>();
+            AnimatedSprite anim = GetOrAddComponent<AnimatedSprite>(obj);
             anim.SetFrames(parasiteFrames, parasiteAnimSpeed);
 
-            chunk.gameObjects.Add(obj);
+            RegisterObject(chunk, obj, id, blocksMovement);
         }
 
-        /// <summary>
-        /// 아이템 배치
-        /// </summary>
-        private void PlaceItem(int x, int y, Chunk chunk)
+        private void PlaceItem(int x, int y, Chunk chunk, ObjectId id, bool blocksMovement)
         {
-            Sprite itemSprite = GetRandomSprite(itemSprites);
+            Sprite itemSprite = GetDeterministicSprite(itemSprites, x, y, 3001);
             if (itemSprite == null) return;
 
             Vector3 worldPos = GridToWorld(x, y);
 
-            GameObject obj = new GameObject($"Item_{x}_{y}");
-            obj.transform.SetParent(objectsParent);
+            GameObject obj = AcquireObject((ObjectKind)id.type, $"Item_{x}_{y}");
             obj.transform.position = worldPos;
 
-            SpriteRenderer sr = obj.AddComponent<SpriteRenderer>();
+            SpriteRenderer sr = GetOrAddComponent<SpriteRenderer>(obj);
             sr.sprite = itemSprite;
+            sr.sortingOrder = GroundDecorationOrder;
 
-            obj.AddComponent<Billboard>();
-            obj.AddComponent<SpriteYSort>();
+            GetOrAddComponent<Billboard>(obj);
 
-            BoxCollider col = obj.AddComponent<BoxCollider>();
+            BoxCollider col = GetOrAddComponent<BoxCollider>(obj);
             col.isTrigger = true;
             col.size = new Vector3(1f, 1f, 1f);
 
-            chunk.gameObjects.Add(obj);
+            RegisterObject(chunk, obj, id, blocksMovement);
         }
 
-        /// <summary>
-        /// 귀환 포털 배치
-        /// </summary>
-        private void PlaceReturnPortal()
+        private void TryPlaceReturnPortal(Chunk chunk)
         {
-            if (returnPortalPlaced) return;
-
             Vector3 portalPos = GetReturnPortalPosition();
+            Vector2Int portalGrid = WorldToGrid(portalPos);
+            Vector2Int portalChunk = GridToChunk(portalGrid.x, portalGrid.y);
 
-            GameObject portalObj = new GameObject("ReturnPortal");
-            portalObj.transform.SetParent(objectsParent);
+            if (portalChunk.x != chunk.chunkX || portalChunk.y != chunk.chunkY)
+            {
+                return;
+            }
+
+            ObjectId id = new ObjectId(portalGrid.x, portalGrid.y, (int)ObjectKind.ReturnPortal);
+            GameObject portalObj = AcquireObject((ObjectKind)id.type, "ReturnPortal");
             portalObj.transform.position = portalPos;
 
-            SpriteRenderer sr = portalObj.AddComponent<SpriteRenderer>();
+            SpriteRenderer sr = GetOrAddComponent<SpriteRenderer>(portalObj);
             if (returnPortalSprite != null)
             {
                 sr.sprite = returnPortalSprite;
             }
             sr.sortingOrder = 1000;
 
-            portalObj.AddComponent<Billboard>();
+            GetOrAddComponent<Billboard>(portalObj);
 
-            BoxCollider col = portalObj.AddComponent<BoxCollider>();
+            BoxCollider col = GetOrAddComponent<BoxCollider>(portalObj);
             col.isTrigger = true;
             col.size = new Vector3(2f, 2f, 1f);
 
-            portalObj.AddComponent<ReturnPortal>();
+            GetOrAddComponent<ReturnPortal>(portalObj);
 
-            returnPortalPlaced = true;
-            Debug.Log($"[IntestineBiome] 귀환 포털 배치: {portalPos}");
+            RegisterObject(chunk, portalObj, id, false);
         }
 
-        /// <summary>
-        /// 오브젝트 복원
-        /// </summary>
-        protected override void RestoreObject(int x, int y, ObjectSaveData objData, Chunk chunk)
-        {
-            switch (objData.spriteKey)
-            {
-                case KEY_PUDDLE_LARGE:
-                    PlaceFloorDecoration(x, y, slimePuddleLarge, "SlimePuddle", chunk);
-                    break;
-                case KEY_PUDDLE_SMALL:
-                    PlaceFloorDecoration(x, y, slimePuddleSmall, "SlimePuddle", chunk);
-                    break;
-                case KEY_MOLD_PLANT:
-                    PlaceSmallDecoration(x, y, moldPlant, "MoldPlant", chunk);
-                    break;
-                case KEY_ROCK:
-                    PlaceLargeObstacle(x, y, rock, "Rock", chunk);
-                    break;
-                case KEY_MOLD_TREE:
-                    PlaceLargeObstacle(x, y, moldTree, "MoldTree", chunk);
-                    break;
-                case KEY_PARASITE:
-                    PlaceParasite(x, y, chunk);
-                    break;
-                case KEY_ITEM:
-                    PlaceItem(x, y, chunk);
-                    break;
-            }
-        }
-
-        /// <summary>
-        /// 타일 스프라이트 키
-        /// </summary>
-        protected override string GetTileSpriteKey(BiomeTile tile)
-        {
-            if (tile.sprite == mudTile1) return KEY_MUD1;
-            if (tile.sprite == mudTile2) return KEY_MUD2;
-            if (tile.sprite == mossTile) return KEY_MOSS;
-            return KEY_MUD1;
-        }
-
-        /// <summary>
-        /// 스프라이트 키로 스프라이트 가져오기
-        /// </summary>
-        protected override Sprite GetSpriteByKey(string key)
-        {
-            return key switch
-            {
-                KEY_MUD1 => mudTile1,
-                KEY_MUD2 => mudTile2,
-                KEY_MOSS => mossTile,
-                KEY_PUDDLE_LARGE => slimePuddleLarge,
-                KEY_PUDDLE_SMALL => slimePuddleSmall,
-                KEY_MOLD_PLANT => moldPlant,
-                KEY_ROCK => rock,
-                KEY_MOLD_TREE => moldTree,
-                _ => mudTile1
-            };
-        }
-
-        /// <summary>
-        /// 랜덤 스프라이트
-        /// </summary>
-        private Sprite GetRandomSprite(Sprite[] sprites)
+        private Sprite GetDeterministicSprite(Sprite[] sprites, int x, int y, int salt)
         {
             if (sprites == null || sprites.Length == 0) return null;
-            return sprites[Random.Range(0, sprites.Length)];
+            int index = BiomeDeterministic.HashRange(seed, x, y, salt, sprites.Length);
+            return sprites[index];
         }
 
-        /// <summary>
-        /// Quad 메시 생성
-        /// </summary>
-        private Mesh CreateQuadMesh()
+        private RegionSample SampleRegion(int worldX, int worldY)
         {
-            Mesh mesh = new Mesh();
+            float cellSize = Mathf.Max(1f, regionCellSize);
+            int cellX = Mathf.FloorToInt(worldX / cellSize);
+            int cellY = Mathf.FloorToInt(worldY / cellSize);
 
-            Vector3[] vertices = new Vector3[4]
+            float bestDist = float.MaxValue;
+            float secondDist = float.MaxValue;
+            int bestType = 0;
+            int secondType = 0;
+
+            for (int dx = -1; dx <= 1; dx++)
             {
-                new Vector3(-0.5f, -0.5f, 0),
-                new Vector3(0.5f, -0.5f, 0),
-                new Vector3(-0.5f, 0.5f, 0),
-                new Vector3(0.5f, 0.5f, 0)
-            };
+                for (int dy = -1; dy <= 1; dy++)
+                {
+                    int nx = cellX + dx;
+                    int ny = cellY + dy;
 
-            int[] triangles = new int[6] { 0, 2, 1, 2, 3, 1 };
+                    Vector2 offset = BiomeDeterministic.HashInCell(seed, nx, ny, 501);
+                    float fx = (nx + offset.x) * cellSize;
+                    float fy = (ny + offset.y) * cellSize;
 
-            Vector2[] uv = new Vector2[4]
+                    float dist = (fx - worldX) * (fx - worldX) + (fy - worldY) * (fy - worldY);
+                    int regionType = BiomeDeterministic.HashRange(seed, nx, ny, 777, RegionCount);
+
+                    if (dist < bestDist)
+                    {
+                        secondDist = bestDist;
+                        secondType = bestType;
+                        bestDist = dist;
+                        bestType = regionType;
+                    }
+                    else if (dist < secondDist)
+                    {
+                        secondDist = dist;
+                        secondType = regionType;
+                    }
+                }
+            }
+
+            float blend = 0f;
+            if (regionBlendWidth > 0f)
             {
-                new Vector2(0, 0),
-                new Vector2(1, 0),
-                new Vector2(0, 1),
-                new Vector2(1, 1)
-            };
+                float edge = Mathf.Sqrt(secondDist) - Mathf.Sqrt(bestDist);
+                blend = Mathf.Clamp01((regionBlendWidth - edge) / regionBlendWidth);
+            }
 
-            mesh.vertices = vertices;
-            mesh.triangles = triangles;
-            mesh.uv = uv;
-            mesh.RecalculateNormals();
+            return new RegionSample(bestType, secondType, blend);
+        }
 
-            return mesh;
+        private int ResolveRegionType(RegionSample sample, int worldX, int worldY)
+        {
+            if (sample.blend <= 0f || sample.primary == sample.secondary)
+            {
+                return sample.primary;
+            }
+
+            float mix = BiomeDeterministic.Hash01(seed, worldX, worldY, 888);
+            return mix < sample.blend ? sample.secondary : sample.primary;
+        }
+
+        private int GetRegionTypeForObjects(int worldX, int worldY)
+        {
+            RegionSample sample = SampleRegion(worldX, worldY);
+            return ResolveRegionType(sample, worldX, worldY);
+        }
+
+        private bool IsRegionAllowed(RegionMask mask, int regionType)
+        {
+            RegionMask region = (RegionMask)(1 << regionType);
+            return (mask & region) != 0;
+        }
+
+        private bool IsPoissonSelected(int worldX, int worldY, ObjectRule rule)
+        {
+            float density = GetDensityForRule(rule, worldX, worldY);
+            if (density <= 0f) return false;
+
+            float selfValue = BiomeDeterministic.Hash01(seed, worldX, worldY, rule.salt);
+            if (selfValue >= density) return false;
+
+            float radius = Mathf.Max(0.5f, rule.minDistance);
+            float radiusSq = radius * radius;
+            int r = Mathf.CeilToInt(radius);
+
+            for (int x = worldX - r; x <= worldX + r; x++)
+            {
+                for (int y = worldY - r; y <= worldY + r; y++)
+                {
+                    if (!IsValidPosition(x, y)) continue;
+                    if (x == worldX && y == worldY) continue;
+
+                    float dx = x - worldX;
+                    float dy = y - worldY;
+                    if (dx * dx + dy * dy > radiusSq) continue;
+
+                    float otherDensity = GetDensityForRule(rule, x, y);
+                    if (otherDensity <= 0f) continue;
+
+                    float otherValue = BiomeDeterministic.Hash01(seed, x, y, rule.salt);
+                    if (otherValue < otherDensity && otherValue < selfValue)
+                    {
+                        return false;
+                    }
+                }
+            }
+
+            return true;
+        }
+
+        private float GetDensityForRule(ObjectRule rule, int worldX, int worldY)
+        {
+            int regionType = GetRegionTypeForObjects(worldX, worldY);
+            if (!IsRegionAllowed(rule.regionMask, regionType)) return 0f;
+            return rule.density;
         }
 
         public override Vector3 GetPlayerSpawnPosition()

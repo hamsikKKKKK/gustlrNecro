@@ -8,7 +8,7 @@ namespace Necrocis
     public class SpriteYSort : MonoBehaviour
     {
         [Header("설정")]
-        [SerializeField] private int baseSortingOrder = 100;  // 배경보다 높게
+        [SerializeField] private int baseSortingOrder = 1000;  // 타일맵보다 확실히 앞에
         [SerializeField] private float sortingMultiplier = 10f;
 
         private SpriteRenderer spriteRenderer;
