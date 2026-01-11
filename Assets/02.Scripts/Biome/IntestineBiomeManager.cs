@@ -64,11 +64,18 @@ namespace Necrocis
         [SerializeField] private float fleshVariantThreshold = 0.5f;
 
         // 노이즈 생성기
-        private FastNoiseLite detailNoise;
+        private PerlinNoise detailNoise;
         private readonly List<ObjectRule> objectRules = new List<ObjectRule>();
+        private int[,] regionTypeCache;
+        private bool[,] regionTypeCacheValid;
 
         private const int RegionCount = 3;
         private const int GroundDecorationOrder = 100;
+        private const int RegionCellJitterSalt = 501;
+        private const int RegionTypeSalt = 777;
+        private const int RegionBlendSalt = 888;
+        private const int SlimePuddleSalt = 2001;
+        private const int ItemSalt = 3001;
 
         private enum RegionType
         {
@@ -132,23 +139,18 @@ namespace Necrocis
 
             base.Awake();
 
+            InitializeRegionCache();
+
             // 노이즈 초기화
-            detailNoise = new FastNoiseLite(seed);
-            detailNoise.SetNoiseType(FastNoiseLite.NoiseType.Perlin);
+            detailNoise = new PerlinNoise(seed);
             detailNoise.SetFrequency(detailNoiseScale);
 
             BuildObjectRules();
         }
 
-        protected override void Start()
-        {
-            base.Start();
-        }
-
         protected override TileSample SampleBaseTile(int worldX, int worldY)
         {
-            RegionSample region = SampleRegion(worldX, worldY);
-            int regionType = ResolveRegionType(region, worldX, worldY);
+            int regionType = GetRegionTypeCached(worldX, worldY);
 
             float detailValue = (detailNoise.GetNoise(worldX, worldY) + 1f) * 0.5f;
 
@@ -219,7 +221,7 @@ namespace Necrocis
                     if (!IsValidPosition(gx, gy)) continue;
                     if (!IsObjectAreaAllowed(gx, gy)) continue;
 
-                    int regionType = GetRegionTypeForObjects(gx, gy);
+                    int regionType = GetRegionTypeCached(gx, gy);
                     Vector2Int pos = new Vector2Int(gx, gy);
 
                     foreach (var rule in objectRules)
@@ -316,11 +318,7 @@ namespace Necrocis
 
         private bool IsObjectAreaAllowed(int x, int y)
         {
-            if (x < 5 || x >= mapWidth - 5 || y < 10 || y >= mapHeight - 5)
-            {
-                return false;
-            }
-            return true;
+            return x >= 5 && x < mapWidth - 5 && y >= 10 && y < mapHeight - 5;
         }
 
         private void SpawnObject(ObjectRule rule, int x, int y, Chunk chunk, ObjectId id)
@@ -369,7 +367,7 @@ namespace Necrocis
 
         private void PlaceSlimePuddle(int x, int y, Chunk chunk, ObjectId id, bool blocksMovement)
         {
-            bool large = BiomeDeterministic.Hash01(seed, x, y, 2001) > 0.5f;
+            bool large = BiomeDeterministic.Hash01(seed, x, y, SlimePuddleSalt) > 0.5f;
             Sprite sprite = large ? slimePuddleLarge : slimePuddleSmall;
             if (sprite == null) return;
 
@@ -463,7 +461,7 @@ namespace Necrocis
 
         private void PlaceItem(int x, int y, Chunk chunk, ObjectId id, bool blocksMovement)
         {
-            Sprite itemSprite = GetDeterministicSprite(itemSprites, x, y, 3001);
+            Sprite itemSprite = GetDeterministicSprite(itemSprites, x, y, ItemSalt);
             if (itemSprite == null) return;
 
             Vector3 worldPos = GridToWorld(x, y);
@@ -524,6 +522,12 @@ namespace Necrocis
             return sprites[index];
         }
 
+        private void InitializeRegionCache()
+        {
+            regionTypeCache = new int[mapWidth, mapHeight];
+            regionTypeCacheValid = new bool[mapWidth, mapHeight];
+        }
+
         private RegionSample SampleRegion(int worldX, int worldY)
         {
             float cellSize = Mathf.Max(1f, regionCellSize);
@@ -542,12 +546,12 @@ namespace Necrocis
                     int nx = cellX + dx;
                     int ny = cellY + dy;
 
-                    Vector2 offset = BiomeDeterministic.HashInCell(seed, nx, ny, 501);
+                    Vector2 offset = BiomeDeterministic.HashInCell(seed, nx, ny, RegionCellJitterSalt);
                     float fx = (nx + offset.x) * cellSize;
                     float fy = (ny + offset.y) * cellSize;
 
                     float dist = (fx - worldX) * (fx - worldX) + (fy - worldY) * (fy - worldY);
-                    int regionType = BiomeDeterministic.HashRange(seed, nx, ny, 777, RegionCount);
+                    int regionType = BiomeDeterministic.HashRange(seed, nx, ny, RegionTypeSalt, RegionCount);
 
                     if (dist < bestDist)
                     {
@@ -581,14 +585,26 @@ namespace Necrocis
                 return sample.primary;
             }
 
-            float mix = BiomeDeterministic.Hash01(seed, worldX, worldY, 888);
+            float mix = BiomeDeterministic.Hash01(seed, worldX, worldY, RegionBlendSalt);
             return mix < sample.blend ? sample.secondary : sample.primary;
         }
 
-        private int GetRegionTypeForObjects(int worldX, int worldY)
+        private int GetRegionTypeCached(int worldX, int worldY)
         {
-            RegionSample sample = SampleRegion(worldX, worldY);
-            return ResolveRegionType(sample, worldX, worldY);
+            if (!IsValidPosition(worldX, worldY))
+            {
+                RegionSample sample = SampleRegion(worldX, worldY);
+                return ResolveRegionType(sample, worldX, worldY);
+            }
+
+            if (!regionTypeCacheValid[worldX, worldY])
+            {
+                RegionSample sample = SampleRegion(worldX, worldY);
+                regionTypeCache[worldX, worldY] = ResolveRegionType(sample, worldX, worldY);
+                regionTypeCacheValid[worldX, worldY] = true;
+            }
+
+            return regionTypeCache[worldX, worldY];
         }
 
         private bool IsRegionAllowed(RegionMask mask, int regionType)
@@ -636,7 +652,7 @@ namespace Necrocis
 
         private float GetDensityForRule(ObjectRule rule, int worldX, int worldY)
         {
-            int regionType = GetRegionTypeForObjects(worldX, worldY);
+            int regionType = GetRegionTypeCached(worldX, worldY);
             if (!IsRegionAllowed(rule.regionMask, regionType)) return 0f;
             return rule.density;
         }

@@ -597,5 +597,5 @@ Assets/
     │   ├── ChunkSaveSystem.cs
     │   ├── AnimatedSprite.cs
     │   └── ReturnPortal.cs
-    └── FastNoiseLite.cs (외부 라이브러리)
+    └── PerlinNoise.cs (외부 라이브러리)
 ```
