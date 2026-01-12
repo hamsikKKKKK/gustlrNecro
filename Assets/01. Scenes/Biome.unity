@@ -148,8 +148,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: d7af3a7b0f7192243b58b8608d2884c5, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::Necrocis.IntestineBiomeManager
-  mapWidth: 90
-  mapHeight: 90
+  mapWidth: 300
+  mapHeight: 300
   chunkSize: 16
   tileSize: 1
   seed: 0
@@ -164,6 +164,14 @@ MonoBehaviour:
   tilesParent: {fileID: 1591111481}
   objectsParent: {fileID: 861256551}
   pooledObjectsParent: {fileID: 0}
+  enableHeight: 1
+  minHeightLevel: -1
+  maxHeightLevel: 1
+  maxStepHeight: 1
+  heightStep: 0.5
+  cliffOverlayOffset: 0.01
+  cliffTint: {r: 0.25938943, g: 0.8207547, b: 0.3391187, a: 1}
+  playerHeightOffset: -2
   mudTile1: {fileID: 11400000, guid: 11d2f3d12749246c9991e3332a75a100, type: 2}
   mudTile2: {fileID: 11400000, guid: b224b8153a5d44787a8fe7731276bfa1, type: 2}
   mossTile: {fileID: 11400000, guid: 2514b191dff8f43de9fcf78ec68d0a73, type: 2}
@@ -204,6 +212,8 @@ MonoBehaviour:
   mudVariantThreshold: 0.5
   mossMixThreshold: 0.2
   fleshVariantThreshold: 0.5
+  heightNoiseScale: 0.015
+  heightNoiseAmplitude: 0.3
 --- !u!4 &838590834
 Transform:
   m_ObjectHideFlags: 0

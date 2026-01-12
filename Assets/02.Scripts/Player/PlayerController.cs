@@ -32,6 +32,8 @@ namespace Necrocis
         [Header("위치 고정")]
         [SerializeField] private bool lockYPosition = false;
         [SerializeField] private float lockedY = -2f;
+        [SerializeField] private float groundOffsetY = -2f;
+        [SerializeField] private bool useDynamicGroundHeight = true;
 
         // 방향
         public enum Direction { Down, Up, Left, Right }
@@ -274,35 +276,92 @@ namespace Necrocis
         /// </summary>
         private void Move()
         {
-            if (characterController != null)
+            if (!isMoving)
             {
-                if (isMoving)
-                {
-                    Vector3 moveVector = movement * moveSpeed * Time.fixedDeltaTime;
-                    characterController.Move(moveVector);
-                }
-            }
-            else if (rb != null)
-            {
-                if (isMoving)
-                {
-                    Vector3 moveVector = movement * moveSpeed * Time.fixedDeltaTime;
-                    rb.MovePosition(rb.position + moveVector);
-                }
-                else
+                if (rb != null)
                 {
                     // 이동 안 할 때 속도 제거 (드리프트 방지)
                     rb.linearVelocity = Vector3.zero;
                     rb.angularVelocity = Vector3.zero;
                 }
+                return;
+            }
+
+            Vector3 moveVector = movement * moveSpeed * Time.fixedDeltaTime;
+            bool moved = TryMoveWithHeight(moveVector);
+
+            if (!moved && rb != null)
+            {
+                rb.linearVelocity = Vector3.zero;
+                rb.angularVelocity = Vector3.zero;
+            }
+        }
+
+        private bool TryMoveWithHeight(Vector3 moveVector)
+        {
+            BiomeManager biome = BiomeManager.Active;
+            if (biome == null)
+            {
+                ApplyMove(moveVector);
+                return true;
+            }
+
+            Vector3 currentPos = transform.position;
+            Vector3 targetPos = currentPos + moveVector;
+            if (biome.CanMove(currentPos, targetPos))
+            {
+                ApplyMove(moveVector);
+                return true;
+            }
+
+            Vector3 moveX = new Vector3(moveVector.x, 0f, 0f);
+            Vector3 moveZ = new Vector3(0f, 0f, moveVector.z);
+
+            if (Mathf.Abs(moveVector.x) >= Mathf.Abs(moveVector.z))
+            {
+                if (moveX.sqrMagnitude > 0f && biome.CanMove(currentPos, currentPos + moveX))
+                {
+                    ApplyMove(moveX);
+                    return true;
+                }
+
+                if (moveZ.sqrMagnitude > 0f && biome.CanMove(currentPos, currentPos + moveZ))
+                {
+                    ApplyMove(moveZ);
+                    return true;
+                }
+
+                return false;
+            }
+
+            if (moveZ.sqrMagnitude > 0f && biome.CanMove(currentPos, currentPos + moveZ))
+            {
+                ApplyMove(moveZ);
+                return true;
+            }
+
+            if (moveX.sqrMagnitude > 0f && biome.CanMove(currentPos, currentPos + moveX))
+            {
+                ApplyMove(moveX);
+                return true;
+            }
+
+            return false;
+        }
+
+        private void ApplyMove(Vector3 moveVector)
+        {
+            if (characterController != null)
+            {
+                characterController.Move(moveVector);
+            }
+            else if (rb != null)
+            {
+                rb.MovePosition(rb.position + moveVector);
             }
             else
             {
-                if (isMoving)
-                {
-                    Vector3 moveVector = movement * moveSpeed * Time.fixedDeltaTime;
-                    transform.position += moveVector;
-                }
+                transform.position += moveVector;
             }
         }
 
@@ -327,6 +386,7 @@ namespace Necrocis
         {
             lockYPosition = true;
             lockedY = y;
+            groundOffsetY = y;
             ApplyLockedY();
         }
 
@@ -339,10 +399,17 @@ namespace Necrocis
         {
             if (!lockYPosition) return;
 
+            float desiredY = lockedY;
+            BiomeManager biome = BiomeManager.Active;
+            if (useDynamicGroundHeight && biome != null)
+            {
+                desiredY = biome.GetGroundHeight(transform.position) + groundOffsetY;
+            }
+
             if (characterController != null)
             {
                 Vector3 pos = transform.position;
-                pos.y = lockedY;
+                pos.y = desiredY;
                 transform.position = pos;
                 return;
             }
@@ -350,7 +417,7 @@ namespace Necrocis
             if (rb != null)
             {
                 Vector3 pos = rb.position;
-                pos.y = lockedY;
+                pos.y = desiredY;
                 rb.position = pos;
 
                 Vector3 vel = rb.linearVelocity;
@@ -360,7 +427,7 @@ namespace Necrocis
             }
 
             Vector3 fallback = transform.position;
-            fallback.y = lockedY;
+            fallback.y = desiredY;
             transform.position = fallback;
         }
 

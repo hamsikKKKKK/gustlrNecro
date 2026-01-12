@@ -9,6 +9,8 @@ namespace Necrocis
     /// </summary>
     public abstract class BiomeManager : MonoBehaviour
     {
+        public static BiomeManager Active { get; private set; }
+
         [Header("맵 설정")]
         [SerializeField] protected int mapWidth = 90;
         [SerializeField] protected int mapHeight = 90;
@@ -35,6 +37,16 @@ namespace Necrocis
         [SerializeField] protected Transform objectsParent;
         [SerializeField] protected Transform pooledObjectsParent;
 
+        [Header("높이 설정")]
+        [SerializeField] protected bool enableHeight = true;
+        [SerializeField] protected int minHeightLevel = -1;
+        [SerializeField] protected int maxHeightLevel = 1;
+        [SerializeField] protected int maxStepHeight = 1;
+        [SerializeField] protected float heightStep = 0.5f;
+        [SerializeField] protected float cliffOverlayOffset = 0.01f;
+        [SerializeField] protected Color cliffTint = new Color(0.6f, 0.6f, 0.6f, 1f);
+        [SerializeField] protected float playerHeightOffset = -2f;
+
         // 청크 정보
         protected int chunksX;
         protected int chunksY;
@@ -60,9 +72,14 @@ namespace Necrocis
         public float TileSize => tileSize;
         public int Seed => seed;
         public BiomeType BiomeType => biomeType;
+        public float HeightStep => heightStep;
+        public int MinHeightLevel => minHeightLevel;
+        public int MaxHeightLevel => maxHeightLevel;
 
         protected virtual void Awake()
         {
+            Active = this;
+
             // 시드 설정
             if (useRandomSeed)
             {
@@ -177,9 +194,11 @@ namespace Necrocis
 
             playerTransform = player.transform;
             Vector3 spawnPos = GetPlayerSpawnPosition();
-            spawnPos.y = -2f;
+            Vector2Int spawnGrid = WorldToGrid(spawnPos);
+            float groundHeight = GetGroundHeight(spawnGrid.x, spawnGrid.y);
+            spawnPos.y = groundHeight + playerHeightOffset;
             player.SpawnAt(spawnPos);
-            player.LockY(-2f);
+            player.LockY(playerHeightOffset);
             Debug.Log($"[BiomeManager] 플레이어 스폰: {spawnPos}");
 
             // 카메라 설정
@@ -303,15 +322,41 @@ namespace Necrocis
 
             Vector3 chunkOrigin = new Vector3(chunk.chunkX * chunkSize * tileSize, 0f, chunk.chunkY * chunkSize * tileSize);
             chunkRoot.transform.localPosition = chunkOrigin;
-            chunkRoot.transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
-
-            Tilemap tilemap = chunkRoot.AddComponent<Tilemap>();
-            TilemapRenderer renderer = chunkRoot.AddComponent<TilemapRenderer>();
-            renderer.sortingOrder = -1000;
 
             chunk.root = chunkRoot;
-            chunk.tilemap = tilemap;
-            chunk.tilemapRenderer = renderer;
+            CreateChunkTilemaps(chunk);
+        }
+
+        private void CreateChunkTilemaps(Chunk chunk)
+        {
+            int levelCount = GetHeightLevelCount();
+            chunk.tilemaps = new Tilemap[levelCount];
+            chunk.tilemapRenderers = new TilemapRenderer[levelCount];
+            chunk.cliffTilemaps = new Tilemap[levelCount];
+            chunk.cliffTilemapRenderers = new TilemapRenderer[levelCount];
+
+            for (int i = 0; i < levelCount; i++)
+            {
+                int heightLevel = minHeightLevel + i;
+                float heightOffset = heightLevel * heightStep;
+
+                chunk.tilemaps[i] = CreateTilemapLayer(chunk.root.transform, $"Tiles_{heightLevel}", heightOffset, -1000 + i * 2, out chunk.tilemapRenderers[i]);
+                chunk.cliffTilemaps[i] = CreateTilemapLayer(chunk.root.transform, $"Cliff_{heightLevel}", heightOffset + cliffOverlayOffset, -999 + i * 2, out chunk.cliffTilemapRenderers[i]);
+                chunk.cliffTilemaps[i].color = cliffTint;
+            }
+        }
+
+        private Tilemap CreateTilemapLayer(Transform parent, string name, float yOffset, int sortingOrder, out TilemapRenderer renderer)
+        {
+            GameObject tileObj = new GameObject(name);
+            tileObj.transform.SetParent(parent, false);
+            tileObj.transform.localPosition = new Vector3(0f, yOffset, 0f);
+            tileObj.transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
+
+            Tilemap tilemap = tileObj.AddComponent<Tilemap>();
+            renderer = tileObj.AddComponent<TilemapRenderer>();
+            renderer.sortingOrder = sortingOrder;
+            return tilemap;
         }
 
         private void LoadChunkChanges(Chunk chunk)
@@ -360,10 +405,7 @@ namespace Necrocis
             UnloadChunkObjects(chunk);
 
             // 타일 제거
-            if (chunk.tilemap != null)
-            {
-                chunk.tilemap.ClearAllTiles();
-            }
+            ClearChunkTilemaps(chunk);
 
             chunk.isLoaded = false;
             loadedChunks.Remove(new Vector2Int(chunkX, chunkY));
@@ -375,9 +417,21 @@ namespace Necrocis
         /// </summary>
         protected virtual void GenerateTiles(Chunk chunk)
         {
-            if (chunk.tilemap == null) return;
+            if (chunk.tilemaps == null || chunk.tilemaps.Length == 0) return;
 
-            TileBase[] tiles = new TileBase[chunkSize * chunkSize];
+            int levelCount = GetHeightLevelCount();
+            int tileCount = chunkSize * chunkSize;
+            TileBase[][] tilesByLevel = new TileBase[levelCount][];
+            TileBase[][] cliffsByLevel = new TileBase[levelCount][];
+            TileBase[] baseTiles = new TileBase[tileCount];
+            int[,] heightLevels = new int[chunkSize, chunkSize];
+
+            for (int i = 0; i < levelCount; i++)
+            {
+                tilesByLevel[i] = new TileBase[tileCount];
+                cliffsByLevel[i] = new TileBase[tileCount];
+            }
+
             int startX = chunk.chunkX * chunkSize;
             int startY = chunk.chunkY * chunkSize;
 
@@ -391,17 +445,50 @@ namespace Necrocis
 
                     if (!IsValidPosition(gx, gy))
                     {
-                        tiles[index] = null;
+                        baseTiles[index] = null;
                         continue;
                     }
 
                     TileSample sample = SampleTile(gx, gy, chunk);
-                    tiles[index] = sample.tile;
+                    baseTiles[index] = sample.tile;
+
+                    int heightLevel = GetHeightLevel(gx, gy);
+                    heightLevels[lx, ly] = heightLevel;
+                    int heightIndex = GetHeightLevelIndex(heightLevel);
+                    tilesByLevel[heightIndex][index] = sample.tile;
+                }
+            }
+
+            for (int ly = 1; ly < chunkSize; ly++)
+            {
+                for (int lx = 0; lx < chunkSize; lx++)
+                {
+                    int upperIndex = ly * chunkSize + lx;
+                    int lowerIndex = (ly - 1) * chunkSize + lx;
+
+                    if (baseTiles[upperIndex] == null || baseTiles[lowerIndex] == null)
+                    {
+                        continue;
+                    }
+
+                    int upperLevel = heightLevels[lx, ly];
+                    int lowerLevel = heightLevels[lx, ly - 1];
+                    if (upperLevel <= lowerLevel)
+                    {
+                        continue;
+                    }
+
+                    int lowerLevelIndex = GetHeightLevelIndex(lowerLevel);
+                    cliffsByLevel[lowerLevelIndex][lowerIndex] = baseTiles[upperIndex];
                 }
             }
 
             BoundsInt bounds = new BoundsInt(0, 0, 0, chunkSize, chunkSize, 1);
-            chunk.tilemap.SetTilesBlock(bounds, tiles);
+            for (int i = 0; i < levelCount; i++)
+            {
+                chunk.tilemaps[i].SetTilesBlock(bounds, tilesByLevel[i]);
+                chunk.cliffTilemaps[i].SetTilesBlock(bounds, cliffsByLevel[i]);
+            }
         }
 
         /// <summary>
@@ -711,6 +798,50 @@ namespace Necrocis
             return x >= 0 && x < mapWidth && y >= 0 && y < mapHeight;
         }
 
+        public int GetHeightLevel(int worldX, int worldY)
+        {
+            if (!enableHeight) return 0;
+            int level = GetBaseHeightLevel(worldX, worldY);
+            return Mathf.Clamp(level, minHeightLevel, maxHeightLevel);
+        }
+
+        protected virtual int GetBaseHeightLevel(int worldX, int worldY)
+        {
+            return 0;
+        }
+
+        public float GetGroundHeight(int gridX, int gridY)
+        {
+            return GetHeightLevel(gridX, gridY) * heightStep;
+        }
+
+        public float GetGroundHeight(Vector3 worldPos)
+        {
+            Vector2Int grid = WorldToGrid(worldPos);
+            return GetGroundHeight(grid.x, grid.y);
+        }
+
+        public Vector3 GridToWorldWithHeight(int gridX, int gridY, float yOffset = 0f)
+        {
+            Vector3 pos = GridToWorld(gridX, gridY);
+            pos.y = GetGroundHeight(gridX, gridY) + yOffset;
+            return pos;
+        }
+
+        public bool CanMove(Vector3 currentWorldPos, Vector3 desiredWorldPos)
+        {
+            Vector2Int currentGrid = WorldToGrid(currentWorldPos);
+            Vector2Int targetGrid = WorldToGrid(desiredWorldPos);
+
+            if (!IsValidPosition(targetGrid.x, targetGrid.y)) return false;
+            if (!IsWalkable(targetGrid.x, targetGrid.y)) return false;
+
+            int currentLevel = GetHeightLevel(currentGrid.x, currentGrid.y);
+            int targetLevel = GetHeightLevel(targetGrid.x, targetGrid.y);
+            int diff = Mathf.Abs(targetLevel - currentLevel);
+            return diff <= maxStepHeight;
+        }
+
         /// <summary>
         /// 이동 가능한지 확인
         /// </summary>
@@ -754,6 +885,47 @@ namespace Necrocis
             {
                 Chunk chunk = chunks[chunkPos.x, chunkPos.y];
                 SaveChunk(chunk);
+            }
+
+            if (Active == this)
+            {
+                Active = null;
+            }
+        }
+
+        private int GetHeightLevelCount()
+        {
+            return Mathf.Max(1, maxHeightLevel - minHeightLevel + 1);
+        }
+
+        private int GetHeightLevelIndex(int heightLevel)
+        {
+            int clamped = Mathf.Clamp(heightLevel, minHeightLevel, maxHeightLevel);
+            return clamped - minHeightLevel;
+        }
+
+        private void ClearChunkTilemaps(Chunk chunk)
+        {
+            if (chunk.tilemaps != null)
+            {
+                foreach (Tilemap tilemap in chunk.tilemaps)
+                {
+                    if (tilemap != null)
+                    {
+                        tilemap.ClearAllTiles();
+                    }
+                }
+            }
+
+            if (chunk.cliffTilemaps != null)
+            {
+                foreach (Tilemap tilemap in chunk.cliffTilemaps)
+                {
+                    if (tilemap != null)
+                    {
+                        tilemap.ClearAllTiles();
+                    }
+                }
             }
         }
     }
@@ -842,8 +1014,10 @@ namespace Necrocis
         public bool isObjectsLoaded;
 
         public GameObject root;
-        public Tilemap tilemap;
-        public TilemapRenderer tilemapRenderer;
+        public Tilemap[] tilemaps;
+        public TilemapRenderer[] tilemapRenderers;
+        public Tilemap[] cliffTilemaps;
+        public TilemapRenderer[] cliffTilemapRenderers;
 
         public Coroutine objectGenerationRoutine;
 

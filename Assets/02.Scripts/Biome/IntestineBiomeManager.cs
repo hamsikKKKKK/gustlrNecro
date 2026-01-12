@@ -63,11 +63,18 @@ namespace Necrocis
         [SerializeField] private float mossMixThreshold = 0.2f;
         [SerializeField] private float fleshVariantThreshold = 0.5f;
 
+        [Header("=== 높이 ===")]
+        [SerializeField] private float heightNoiseScale = 0.02f;
+        [SerializeField] private float heightNoiseAmplitude = 0.45f;
+
         // 노이즈 생성기
         private PerlinNoise detailNoise;
+        private PerlinNoise heightNoise;
         private readonly List<ObjectRule> objectRules = new List<ObjectRule>();
         private int[,] regionTypeCache;
         private bool[,] regionTypeCacheValid;
+        private int[,] heightLevelCache;
+        private bool[,] heightLevelCacheValid;
 
         private const int RegionCount = 3;
         private const int GroundDecorationOrder = 100;
@@ -140,10 +147,14 @@ namespace Necrocis
             base.Awake();
 
             InitializeRegionCache();
+            InitializeHeightCache();
 
             // 노이즈 초기화
             detailNoise = new PerlinNoise(seed);
             detailNoise.SetFrequency(detailNoiseScale);
+
+            heightNoise = new PerlinNoise(seed + 97);
+            heightNoise.SetFrequency(heightNoiseScale);
 
             BuildObjectRules();
         }
@@ -187,6 +198,11 @@ namespace Necrocis
                 BiomeTileType.FloorVariant => mudTile2,
                 _ => mudTile1
             };
+        }
+
+        protected override int GetBaseHeightLevel(int worldX, int worldY)
+        {
+            return GetHeightLevelCached(worldX, worldY);
         }
 
         protected override void GenerateObjectsForChunk(Chunk chunk)
@@ -376,10 +392,10 @@ namespace Necrocis
 
         private void PlaceFloorDecoration(int x, int y, Sprite sprite, string name, Chunk chunk, ObjectId id, bool blocksMovement)
         {
-            Vector3 worldPos = GridToWorld(x, y);
+            Vector3 worldPos = GridToWorldWithHeight(x, y, 0.01f);
 
             GameObject obj = AcquireObject((ObjectKind)id.type, $"{name}_{x}_{y}");
-            obj.transform.position = worldPos + new Vector3(0, 0.01f, 0);
+            obj.transform.position = worldPos;
 
             SpriteRenderer sr = GetOrAddComponent<SpriteRenderer>(obj);
             sr.sprite = sprite;
@@ -394,7 +410,7 @@ namespace Necrocis
         {
             if (sprite == null) return;
 
-            Vector3 worldPos = GridToWorld(x, y);
+            Vector3 worldPos = GridToWorldWithHeight(x, y);
 
             GameObject obj = AcquireObject((ObjectKind)id.type, $"{name}_{x}_{y}");
             obj.transform.position = worldPos;
@@ -412,7 +428,7 @@ namespace Necrocis
         {
             if (sprite == null) return;
 
-            Vector3 worldPos = GridToWorld(x, y);
+            Vector3 worldPos = GridToWorldWithHeight(x, y);
 
             GameObject obj = AcquireObject((ObjectKind)id.type, $"{name}_{x}_{y}");
             obj.transform.position = worldPos;
@@ -442,7 +458,7 @@ namespace Necrocis
         {
             if (parasiteFrames == null || parasiteFrames.Length == 0) return;
 
-            Vector3 worldPos = GridToWorld(x, y);
+            Vector3 worldPos = GridToWorldWithHeight(x, y);
 
             GameObject obj = AcquireObject((ObjectKind)id.type, $"Parasite_{x}_{y}");
             obj.transform.position = worldPos;
@@ -464,7 +480,7 @@ namespace Necrocis
             Sprite itemSprite = GetDeterministicSprite(itemSprites, x, y, ItemSalt);
             if (itemSprite == null) return;
 
-            Vector3 worldPos = GridToWorld(x, y);
+            Vector3 worldPos = GridToWorldWithHeight(x, y);
 
             GameObject obj = AcquireObject((ObjectKind)id.type, $"Item_{x}_{y}");
             obj.transform.position = worldPos;
@@ -526,6 +542,12 @@ namespace Necrocis
         {
             regionTypeCache = new int[mapWidth, mapHeight];
             regionTypeCacheValid = new bool[mapWidth, mapHeight];
+        }
+
+        private void InitializeHeightCache()
+        {
+            heightLevelCache = new int[mapWidth, mapHeight];
+            heightLevelCacheValid = new bool[mapWidth, mapHeight];
         }
 
         private RegionSample SampleRegion(int worldX, int worldY)
@@ -607,6 +629,57 @@ namespace Necrocis
             return regionTypeCache[worldX, worldY];
         }
 
+        private int GetHeightLevelCached(int worldX, int worldY)
+        {
+            if (!IsValidPosition(worldX, worldY))
+            {
+                RegionSample sample = SampleRegion(worldX, worldY);
+                return ResolveHeight(sample, worldX, worldY);
+            }
+
+            if (!heightLevelCacheValid[worldX, worldY])
+            {
+                RegionSample sample = SampleRegion(worldX, worldY);
+                heightLevelCache[worldX, worldY] = ResolveHeight(sample, worldX, worldY);
+                heightLevelCacheValid[worldX, worldY] = true;
+            }
+
+            return heightLevelCache[worldX, worldY];
+        }
+
+        private int ResolveHeight(RegionSample sample, int worldX, int worldY)
+        {
+            int primaryHeight = GetRegionHeight(sample.primary);
+            int secondaryHeight = GetRegionHeight(sample.secondary);
+
+            float baseHeight = primaryHeight;
+            if (sample.blend > 0f && primaryHeight != secondaryHeight)
+            {
+                baseHeight = Mathf.Lerp(primaryHeight, secondaryHeight, sample.blend);
+            }
+
+            float noise = 0f;
+            if (heightNoise != null)
+            {
+                noise = heightNoise.GetNoise(worldX, worldY) * heightNoiseAmplitude;
+            }
+
+            float heightValue = baseHeight + noise;
+            int level = Mathf.RoundToInt(heightValue);
+            return Mathf.Clamp(level, minHeightLevel, maxHeightLevel);
+        }
+
+        private int GetRegionHeight(int regionType)
+        {
+            return ((RegionType)regionType) switch
+            {
+                RegionType.Mud => -1,
+                RegionType.Moss => 0,
+                RegionType.Flesh => 1,
+                _ => 0
+            };
+        }
+
         private bool IsRegionAllowed(RegionMask mask, int regionType)
         {
             RegionMask region = (RegionMask)(1 << regionType);
@@ -664,7 +737,7 @@ namespace Necrocis
 
         public override Vector3 GetReturnPortalPosition()
         {
-            return GridToWorld(mapWidth / 2, 4);
+            return GridToWorldWithHeight(mapWidth / 2, 4);
         }
     }
 }
