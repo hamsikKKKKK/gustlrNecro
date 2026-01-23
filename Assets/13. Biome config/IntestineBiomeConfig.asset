@@ -1,0 +1,198 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 993fef1babbb42aa98f92869b556b425, type: 3}
+  m_Name: IntestineBiomeConfig
+  m_EditorClassIdentifier: 
+  biomeType: 1
+  regionCellSize: 20
+  regionBlendWidth: 3
+  detailNoiseScale: 0.05
+  regions:
+  - name: Mud
+    baseHeight: -1
+    primaryTile: {fileID: 11400000, guid: 11d2f3d12749246c9991e3332a75a100, type: 2}
+    primaryType: 1
+    variantTile: {fileID: 11400000, guid: bac4af93bbb0c493bb1bf946190c22b5, type: 2}
+    variantType: 2
+    variantThreshold: 0.85
+  - name: Moss
+    baseHeight: 1
+    primaryTile: {fileID: 11400000, guid: 2514b191dff8f43de9fcf78ec68d0a73, type: 2}
+    primaryType: 1
+    variantTile: {fileID: 0}
+    variantType: 0
+    variantThreshold: 0.2
+  - name: Flesh
+    baseHeight: 0
+    primaryTile: {fileID: 11400000, guid: b224b8153a5d44787a8fe7731276bfa1, type: 2}
+    primaryType: 1
+    variantTile: {fileID: 11400000, guid: 5472695917296437d9a3c856571b9d6a, type: 2}
+    variantType: 2
+    variantThreshold: 0.85
+  heightNoiseScale: 0.015
+  heightNoiseAmplitude: 0.3
+  tileMappings:
+  - tileType: 1
+    tile: {fileID: 11400000, guid: 11d2f3d12749246c9991e3332a75a100, type: 2}
+  - tileType: 1
+    tile: {fileID: 0}
+  - tileType: 1
+    tile: {fileID: 11400000, guid: 2514b191dff8f43de9fcf78ec68d0a73, type: 2}
+  marginLeft: 5
+  marginRight: 5
+  marginBottom: 10
+  marginTop: 5
+  objectRules:
+  - name: MoldTree
+    poolKind: 3
+    density: 0.015
+    minDistance: 4
+    poissonSalt: 101
+    allowedRegions: 01000000
+    blocksMovement: 1
+    heightOffset: 0
+    sortingOrder: 0
+    sprites:
+    - {fileID: 21300000, guid: 028a645fe71decd41b11e7debea3779c, type: 3}
+    useDeterministicSprite: 1
+    spriteSalt: 0
+    animate: 0
+    animationSpeed: 0.15
+    useBillboard: 1
+    useYSort: 1
+    addCollider: 1
+    isTrigger: 0
+    colliderSize: {x: 1.5, y: 3.15192, z: 1.5}
+    colliderCenter: {x: 0, y: -0.01219428, z: -0.0000001194857}
+  - name: Rock
+    poolKind: 3
+    density: 0.02
+    minDistance: 3
+    poissonSalt: 102
+    allowedRegions: 00000000
+    blocksMovement: 1
+    heightOffset: 0
+    sortingOrder: 0
+    sprites:
+    - {fileID: 21300000, guid: 2879ccd9fa85a6f49a5ea8f34127655f, type: 3}
+    useDeterministicSprite: 1
+    spriteSalt: 0
+    animate: 0
+    animationSpeed: 0.15
+    useBillboard: 1
+    useYSort: 1
+    addCollider: 1
+    isTrigger: 0
+    colliderSize: {x: 2.751141, y: 1.319045, z: 1.5}
+    colliderCenter: {x: -0.05412865, y: -0.3340048, z: -0.0000000561392}
+  - name: Parasite
+    poolKind: 4
+    density: 0.01
+    minDistance: 3
+    poissonSalt: 103
+    allowedRegions: 02000000
+    blocksMovement: 0
+    heightOffset: 0
+    sortingOrder: 100
+    sprites:
+    - {fileID: -236613315, guid: 32163f481db351341986994e23657a62, type: 3}
+    - {fileID: -1054637751, guid: 32163f481db351341986994e23657a62, type: 3}
+    - {fileID: 1308038961, guid: 32163f481db351341986994e23657a62, type: 3}
+    - {fileID: 1654067652, guid: 32163f481db351341986994e23657a62, type: 3}
+    - {fileID: 471908148, guid: 32163f481db351341986994e23657a62, type: 3}
+    - {fileID: -620646150, guid: 32163f481db351341986994e23657a62, type: 3}
+    useDeterministicSprite: 1
+    spriteSalt: 0
+    animate: 1
+    animationSpeed: 0.15
+    useBillboard: 1
+    useYSort: 0
+    addCollider: 0
+    isTrigger: 0
+    colliderSize: {x: 1, y: 1, z: 1}
+    colliderCenter: {x: 0, y: 0, z: 0}
+  - name: SlimePuddle
+    poolKind: 1
+    density: 0.03
+    minDistance: 2
+    poissonSalt: 104
+    allowedRegions: 0000000002000000
+    blocksMovement: 0
+    heightOffset: 0.01
+    sortingOrder: 100
+    sprites:
+    - {fileID: 21300000, guid: 2577e0342ac146e428a29e29dd022fd5, type: 3}
+    - {fileID: 21300000, guid: 26495a09b858cfa468e9634d3118d00f, type: 3}
+    useDeterministicSprite: 1
+    spriteSalt: 2001
+    animate: 0
+    animationSpeed: 0.15
+    useBillboard: 1
+    useYSort: 0
+    addCollider: 0
+    isTrigger: 0
+    colliderSize: {x: 1, y: 1, z: 1}
+    colliderCenter: {x: 0, y: 0, z: 0}
+  - name: MoldPlant
+    poolKind: 2
+    density: 0.05
+    minDistance: 2
+    poissonSalt: 105
+    allowedRegions: 01000000
+    blocksMovement: 0
+    heightOffset: 0
+    sortingOrder: 100
+    sprites:
+    - {fileID: 21300000, guid: 4f829d5e36de9cd44b44cf726d3008d1, type: 3}
+    useDeterministicSprite: 1
+    spriteSalt: 0
+    animate: 0
+    animationSpeed: 0.15
+    useBillboard: 1
+    useYSort: 0
+    addCollider: 0
+    isTrigger: 0
+    colliderSize: {x: 1, y: 1, z: 1}
+    colliderCenter: {x: 0, y: 0, z: 0}
+  - name: Item
+    poolKind: 5
+    density: 0.01
+    minDistance: 2
+    poissonSalt: 106
+    allowedRegions: 
+    blocksMovement: 0
+    heightOffset: 0
+    sortingOrder: 100
+    sprites: []
+    useDeterministicSprite: 1
+    spriteSalt: 3001
+    animate: 0
+    animationSpeed: 0.15
+    useBillboard: 1
+    useYSort: 0
+    addCollider: 1
+    isTrigger: 1
+    colliderSize: {x: 1, y: 1, z: 1}
+    colliderCenter: {x: 0, y: 0, z: 0}
+  returnPortal:
+    enabled: 1
+    name: ReturnPortal
+    poolKind: 100
+    sprite: {fileID: 1428116226, guid: fbc2f259a8b301f42933cd4689e5842c, type: 3}
+    sortingOrder: 1000
+    useCustomPosition: 1
+    gridPosition: {x: 150, y: 4}
+    heightOffset: 0
+    useBillboard: 1
+    scale: {x: 0.5, y: 0.5, z: 0.5}
+    addCollider: 1
+    isTrigger: 1

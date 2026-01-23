@@ -75,22 +75,22 @@ namespace Necrocis
                 }
             }
 
-            // 스프라이트 기본 설정 (SpriteYSort가 동적으로 관리)
+            // 스프라이트 기본 설정
             spriteRenderer.color = Color.white;
 
-            // 빌보드 추가
             Billboard billboard = spriteRenderer.GetComponent<Billboard>();
             if (billboard == null)
             {
-                spriteRenderer.gameObject.AddComponent<Billboard>();
+                billboard = spriteRenderer.gameObject.AddComponent<Billboard>();
             }
+            billboard.SetUpdateMode(Billboard.UpdateMode.Continuous);
 
-            // Y 정렬 추가 (앞뒤 순서)
             SpriteYSort ySort = spriteRenderer.GetComponent<SpriteYSort>();
             if (ySort == null)
             {
                 ySort = spriteRenderer.gameObject.AddComponent<SpriteYSort>();
             }
+            ySort.SetUpdateMode(SpriteYSort.UpdateMode.Continuous);
 
             // 물리 컴포넌트 확인
             rb = GetComponent<Rigidbody>();

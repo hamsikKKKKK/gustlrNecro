@@ -1,13 +1,12 @@
 using UnityEngine;
 using UnityEngine.Tilemaps;
-using System.Collections.Generic;
 
 namespace Necrocis
 {
     /// <summary>
     /// 장(Intestine) 바이옴 맵 생성기 (Tilemap + Voronoi/Perlin + Poisson)
     /// </summary>
-    public class IntestineBiomeManager : BiomeManager
+    public class IntestineBiomeManager : RegionPoissonBiomeManager
     {
         [Header("=== 장 바이옴 타일 ===")]
         [SerializeField] private TileBase mudTile1;   // 기본 진흙
@@ -56,31 +55,15 @@ namespace Necrocis
         [SerializeField] private float itemMinDistance = 2f;
 
         [Header("=== Voronoi/Perlin ===")]
-        [SerializeField] private float regionCellSize = 20f;      // Voronoi 셀 크기
-        [SerializeField] private float regionBlendWidth = 3f;     // 경계 블렌딩 폭 (타일)
         [SerializeField] private float detailNoiseScale = 0.05f;  // Perlin 스케일
         [SerializeField] private float mudVariantThreshold = 0.5f;
         [SerializeField] private float mossMixThreshold = 0.2f;
         [SerializeField] private float fleshVariantThreshold = 0.5f;
 
-        [Header("=== 높이 ===")]
-        [SerializeField] private float heightNoiseScale = 0.02f;
-        [SerializeField] private float heightNoiseAmplitude = 0.45f;
-
         // 노이즈 생성기
         private PerlinNoise detailNoise;
-        private PerlinNoise heightNoise;
-        private readonly List<ObjectRule> objectRules = new List<ObjectRule>();
-        private int[,] regionTypeCache;
-        private bool[,] regionTypeCacheValid;
-        private int[,] heightLevelCache;
-        private bool[,] heightLevelCacheValid;
 
-        private const int RegionCount = 3;
         private const int GroundDecorationOrder = 100;
-        private const int RegionCellJitterSalt = 501;
-        private const int RegionTypeSalt = 777;
-        private const int RegionBlendSalt = 888;
         private const int SlimePuddleSalt = 2001;
         private const int ItemSalt = 3001;
 
@@ -91,72 +74,16 @@ namespace Necrocis
             Flesh = 2
         }
 
-        private enum ObjectKind
-        {
-            SlimePuddle = 1,
-            MoldPlant = 2,
-            Rock = 3,
-            MoldTree = 4,
-            Parasite = 5,
-            Item = 6,
-            ReturnPortal = 100
-        }
-
-        [System.Flags]
-        private enum RegionMask
-        {
-            Mud = 1 << 0,
-            Moss = 1 << 1,
-            Flesh = 1 << 2,
-            All = Mud | Moss | Flesh
-        }
-
-        private struct RegionSample
-        {
-            public int primary;
-            public int secondary;
-            public float blend;
-
-            public RegionSample(int primary, int secondary, float blend)
-            {
-                this.primary = primary;
-                this.secondary = secondary;
-                this.blend = blend;
-            }
-        }
-
-        private struct ObjectRule
-        {
-            public ObjectKind kind;
-            public float density;
-            public float minDistance;
-            public bool blocksMovement;
-            public RegionMask regionMask;
-            public int salt;
-        }
-
         protected override void Awake()
         {
             // 바이옴 타입 설정
             biomeType = BiomeType.Intestine;
 
-            // 장 바이옴 크기
-            mapWidth = 90;
-            mapHeight = 90;
-
             base.Awake();
-
-            InitializeRegionCache();
-            InitializeHeightCache();
 
             // 노이즈 초기화
             detailNoise = new PerlinNoise(seed);
             detailNoise.SetFrequency(detailNoiseScale);
-
-            heightNoise = new PerlinNoise(seed + 97);
-            heightNoise.SetFrequency(heightNoiseScale);
-
-            BuildObjectRules();
         }
 
         protected override TileSample SampleBaseTile(int worldX, int worldY)
@@ -200,173 +127,129 @@ namespace Necrocis
             };
         }
 
-        protected override int GetBaseHeightLevel(int worldX, int worldY)
-        {
-            return GetHeightLevelCached(worldX, worldY);
-        }
-
-        protected override void GenerateObjectsForChunk(Chunk chunk)
-        {
-            var enumerator = GenerateObjectsInternal(chunk);
-            while (enumerator.MoveNext())
-            {
-            }
-        }
-
-        protected override System.Collections.IEnumerator GenerateObjectsForChunkAsync(Chunk chunk)
-        {
-            return GenerateObjectsInternal(chunk);
-        }
-
-        private System.Collections.IEnumerator GenerateObjectsInternal(Chunk chunk)
-        {
-            int startX = chunk.chunkX * chunkSize;
-            int startY = chunk.chunkY * chunkSize;
-
-            HashSet<Vector2Int> occupied = new HashSet<Vector2Int>();
-            int processed = 0;
-            int budget = Mathf.Max(16, objectGenerationBudget);
-
-            for (int lx = 0; lx < chunkSize; lx++)
-            {
-                for (int ly = 0; ly < chunkSize; ly++)
-                {
-                    int gx = startX + lx;
-                    int gy = startY + ly;
-
-                    if (!IsValidPosition(gx, gy)) continue;
-                    if (!IsObjectAreaAllowed(gx, gy)) continue;
-
-                    int regionType = GetRegionTypeCached(gx, gy);
-                    Vector2Int pos = new Vector2Int(gx, gy);
-
-                    foreach (var rule in objectRules)
-                    {
-                        if (occupied.Contains(pos)) break;
-                        if (!IsRegionAllowed(rule.regionMask, regionType)) continue;
-
-                        if (!IsPoissonSelected(gx, gy, rule))
-                        {
-                            continue;
-                        }
-
-                        ObjectId id = new ObjectId(gx, gy, (int)rule.kind);
-                        if (IsObjectSuppressed(chunk, id))
-                        {
-                            continue;
-                        }
-
-                        SpawnObject(rule, gx, gy, chunk, id);
-                        occupied.Add(pos);
-                        break;
-                    }
-
-                    processed++;
-                    if (processed >= budget)
-                    {
-                        processed = 0;
-                        yield return null;
-                    }
-                }
-            }
-
-            TryPlaceReturnPortal(chunk);
-        }
-
-        private void BuildObjectRules()
+        protected override void BuildObjectRules()
         {
             objectRules.Clear();
             objectRules.Add(new ObjectRule
             {
-                kind = ObjectKind.MoldTree,
+                kind = BiomeObjectKind.LargeObstacle,
                 density = moldTreeDensity,
                 minDistance = moldTreeMinDistance,
                 blocksMovement = true,
-                regionMask = RegionMask.Moss,
-                salt = 101
+                regionMask = Mask((int)RegionType.Moss),
+                salt = 101,
+                configIndex = 0
             });
             objectRules.Add(new ObjectRule
             {
-                kind = ObjectKind.Rock,
+                kind = BiomeObjectKind.LargeObstacle,
                 density = rockDensity,
                 minDistance = rockMinDistance,
                 blocksMovement = true,
-                regionMask = RegionMask.Mud,
-                salt = 102
+                regionMask = Mask((int)RegionType.Mud),
+                salt = 102,
+                configIndex = 1
             });
             objectRules.Add(new ObjectRule
             {
-                kind = ObjectKind.Parasite,
+                kind = BiomeObjectKind.AnimatedDecoration,
                 density = parasiteDensity,
                 minDistance = parasiteMinDistance,
                 blocksMovement = false,
-                regionMask = RegionMask.Flesh,
-                salt = 103
+                regionMask = Mask((int)RegionType.Flesh),
+                salt = 103,
+                configIndex = 2
             });
             objectRules.Add(new ObjectRule
             {
-                kind = ObjectKind.SlimePuddle,
+                kind = BiomeObjectKind.FloorDecoration,
                 density = slimePuddleDensity,
                 minDistance = slimePuddleMinDistance,
                 blocksMovement = false,
-                regionMask = RegionMask.Mud | RegionMask.Flesh,
-                salt = 104
+                regionMask = Mask((int)RegionType.Mud, (int)RegionType.Flesh),
+                salt = 104,
+                configIndex = 3
             });
             objectRules.Add(new ObjectRule
             {
-                kind = ObjectKind.MoldPlant,
+                kind = BiomeObjectKind.SmallDecoration,
                 density = moldPlantDensity,
                 minDistance = moldPlantMinDistance,
                 blocksMovement = false,
-                regionMask = RegionMask.Moss,
-                salt = 105
+                regionMask = Mask((int)RegionType.Moss),
+                salt = 105,
+                configIndex = 4
             });
             objectRules.Add(new ObjectRule
             {
-                kind = ObjectKind.Item,
+                kind = BiomeObjectKind.Item,
                 density = itemDensity,
                 minDistance = itemMinDistance,
                 blocksMovement = false,
-                regionMask = RegionMask.All,
-                salt = 106
+                regionMask = Mask((int)RegionType.Mud, (int)RegionType.Moss, (int)RegionType.Flesh),
+                salt = 106,
+                configIndex = 5
             });
         }
 
-        private bool IsObjectAreaAllowed(int x, int y)
+        protected override bool IsObjectAreaAllowed(int x, int y)
         {
             return x >= 5 && x < mapWidth - 5 && y >= 10 && y < mapHeight - 5;
         }
 
-        private void SpawnObject(ObjectRule rule, int x, int y, Chunk chunk, ObjectId id)
+        protected override int GetRegionHeight(int regionType)
+        {
+            return ((RegionType)regionType) switch
+            {
+                RegionType.Mud => -1,
+                RegionType.Moss => 0,
+                RegionType.Flesh => 1,
+                _ => 0
+            };
+        }
+
+        protected override void SpawnObject(ObjectRule rule, int x, int y, Chunk chunk, ObjectId id)
         {
             switch (rule.kind)
             {
-                case ObjectKind.SlimePuddle:
+                case BiomeObjectKind.FloorDecoration:
                     PlaceSlimePuddle(x, y, chunk, id, rule.blocksMovement);
                     break;
-                case ObjectKind.MoldPlant:
+                case BiomeObjectKind.SmallDecoration:
                     PlaceSmallDecoration(x, y, moldPlant, "MoldPlant", chunk, id, rule.blocksMovement);
                     break;
-                case ObjectKind.Rock:
-                    PlaceLargeObstacle(x, y, rock, "Rock", chunk, id, rule.blocksMovement);
+                case BiomeObjectKind.LargeObstacle:
+                    if (rule.configIndex == 0)
+                    {
+                        PlaceLargeObstacle(x, y, moldTree, "MoldTree", moldTreeColliderSize, moldTreeColliderCenter, chunk, id, rule.blocksMovement);
+                    }
+                    else
+                    {
+                        PlaceLargeObstacle(x, y, rock, "Rock", rockColliderSize, rockColliderCenter, chunk, id, rule.blocksMovement);
+                    }
                     break;
-                case ObjectKind.MoldTree:
-                    PlaceLargeObstacle(x, y, moldTree, "MoldTree", chunk, id, rule.blocksMovement);
-                    break;
-                case ObjectKind.Parasite:
+                case BiomeObjectKind.AnimatedDecoration:
                     PlaceParasite(x, y, chunk, id, rule.blocksMovement);
                     break;
-                case ObjectKind.Item:
+                case BiomeObjectKind.Item:
                     PlaceItem(x, y, chunk, id, rule.blocksMovement);
                     break;
             }
         }
 
-        private GameObject AcquireObject(ObjectKind kind, string name)
+        protected override void OnAfterObjectsGenerated(Chunk chunk)
         {
-            GameObject obj = GetPooledObject((int)kind, () => new GameObject(name));
+            TryPlaceReturnPortal(chunk);
+        }
+
+        private GameObject AcquireObject(BiomeObjectKind kind, string name)
+        {
+            GameObject obj = GetPooledObject(kind, () => new GameObject(name));
             obj.name = name;
-            obj.transform.SetParent(objectsParent);
+            obj.transform.SetParent(objectsParent, false);
+            obj.transform.localPosition = Vector3.zero;
+            obj.transform.localRotation = Quaternion.identity;
+            obj.transform.localScale = Vector3.one;
             obj.SetActive(true);
             return obj;
         }
@@ -394,13 +277,12 @@ namespace Necrocis
         {
             Vector3 worldPos = GridToWorldWithHeight(x, y, 0.01f);
 
-            GameObject obj = AcquireObject((ObjectKind)id.type, $"{name}_{x}_{y}");
+            GameObject obj = AcquireObject(id.type, $"{name}_{x}_{y}");
             obj.transform.position = worldPos;
 
             SpriteRenderer sr = GetOrAddComponent<SpriteRenderer>(obj);
             sr.sprite = sprite;
             sr.sortingOrder = GroundDecorationOrder;
-
             GetOrAddComponent<Billboard>(obj);
 
             RegisterObject(chunk, obj, id, blocksMovement);
@@ -412,44 +294,34 @@ namespace Necrocis
 
             Vector3 worldPos = GridToWorldWithHeight(x, y);
 
-            GameObject obj = AcquireObject((ObjectKind)id.type, $"{name}_{x}_{y}");
+            GameObject obj = AcquireObject(id.type, $"{name}_{x}_{y}");
             obj.transform.position = worldPos;
 
             SpriteRenderer sr = GetOrAddComponent<SpriteRenderer>(obj);
             sr.sprite = sprite;
             sr.sortingOrder = GroundDecorationOrder;
-
             GetOrAddComponent<Billboard>(obj);
 
             RegisterObject(chunk, obj, id, blocksMovement);
         }
 
-        private void PlaceLargeObstacle(int x, int y, Sprite sprite, string name, Chunk chunk, ObjectId id, bool blocksMovement)
+        private void PlaceLargeObstacle(int x, int y, Sprite sprite, string name, Vector3 colliderSize, Vector3 colliderCenter, Chunk chunk, ObjectId id, bool blocksMovement)
         {
             if (sprite == null) return;
 
             Vector3 worldPos = GridToWorldWithHeight(x, y);
 
-            GameObject obj = AcquireObject((ObjectKind)id.type, $"{name}_{x}_{y}");
+            GameObject obj = AcquireObject(id.type, $"{name}_{x}_{y}");
             obj.transform.position = worldPos;
 
             SpriteRenderer sr = GetOrAddComponent<SpriteRenderer>(obj);
             sr.sprite = sprite;
-
             GetOrAddComponent<Billboard>(obj);
             GetOrAddComponent<SpriteYSort>(obj);
 
             BoxCollider col = GetOrAddComponent<BoxCollider>(obj);
-            if (id.type == (int)ObjectKind.Rock)
-            {
-                col.size = rockColliderSize;
-                col.center = rockColliderCenter;
-            }
-            else
-            {
-                col.size = moldTreeColliderSize;
-                col.center = moldTreeColliderCenter;
-            }
+            col.size = colliderSize;
+            col.center = colliderCenter;
 
             RegisterObject(chunk, obj, id, blocksMovement);
         }
@@ -460,13 +332,12 @@ namespace Necrocis
 
             Vector3 worldPos = GridToWorldWithHeight(x, y);
 
-            GameObject obj = AcquireObject((ObjectKind)id.type, $"Parasite_{x}_{y}");
+            GameObject obj = AcquireObject(id.type, $"Parasite_{x}_{y}");
             obj.transform.position = worldPos;
 
             SpriteRenderer sr = GetOrAddComponent<SpriteRenderer>(obj);
             sr.sprite = parasiteFrames[0];
             sr.sortingOrder = GroundDecorationOrder;
-
             GetOrAddComponent<Billboard>(obj);
 
             AnimatedSprite anim = GetOrAddComponent<AnimatedSprite>(obj);
@@ -482,13 +353,12 @@ namespace Necrocis
 
             Vector3 worldPos = GridToWorldWithHeight(x, y);
 
-            GameObject obj = AcquireObject((ObjectKind)id.type, $"Item_{x}_{y}");
+            GameObject obj = AcquireObject(id.type, $"Item_{x}_{y}");
             obj.transform.position = worldPos;
 
             SpriteRenderer sr = GetOrAddComponent<SpriteRenderer>(obj);
             sr.sprite = itemSprite;
             sr.sortingOrder = GroundDecorationOrder;
-
             GetOrAddComponent<Billboard>(obj);
 
             BoxCollider col = GetOrAddComponent<BoxCollider>(obj);
@@ -509,8 +379,8 @@ namespace Necrocis
                 return;
             }
 
-            ObjectId id = new ObjectId(portalGrid.x, portalGrid.y, (int)ObjectKind.ReturnPortal);
-            GameObject portalObj = AcquireObject((ObjectKind)id.type, "ReturnPortal");
+            ObjectId id = new ObjectId(portalGrid.x, portalGrid.y, BiomeObjectKind.Portal);
+            GameObject portalObj = AcquireObject(id.type, "ReturnPortal");
             portalObj.transform.position = portalPos;
 
             SpriteRenderer sr = GetOrAddComponent<SpriteRenderer>(portalObj);
@@ -519,7 +389,6 @@ namespace Necrocis
                 sr.sprite = returnPortalSprite;
             }
             sr.sortingOrder = 1000;
-
             GetOrAddComponent<Billboard>(portalObj);
 
             BoxCollider col = GetOrAddComponent<BoxCollider>(portalObj);
@@ -536,198 +405,6 @@ namespace Necrocis
             if (sprites == null || sprites.Length == 0) return null;
             int index = BiomeDeterministic.HashRange(seed, x, y, salt, sprites.Length);
             return sprites[index];
-        }
-
-        private void InitializeRegionCache()
-        {
-            regionTypeCache = new int[mapWidth, mapHeight];
-            regionTypeCacheValid = new bool[mapWidth, mapHeight];
-        }
-
-        private void InitializeHeightCache()
-        {
-            heightLevelCache = new int[mapWidth, mapHeight];
-            heightLevelCacheValid = new bool[mapWidth, mapHeight];
-        }
-
-        private RegionSample SampleRegion(int worldX, int worldY)
-        {
-            float cellSize = Mathf.Max(1f, regionCellSize);
-            int cellX = Mathf.FloorToInt(worldX / cellSize);
-            int cellY = Mathf.FloorToInt(worldY / cellSize);
-
-            float bestDist = float.MaxValue;
-            float secondDist = float.MaxValue;
-            int bestType = 0;
-            int secondType = 0;
-
-            for (int dx = -1; dx <= 1; dx++)
-            {
-                for (int dy = -1; dy <= 1; dy++)
-                {
-                    int nx = cellX + dx;
-                    int ny = cellY + dy;
-
-                    Vector2 offset = BiomeDeterministic.HashInCell(seed, nx, ny, RegionCellJitterSalt);
-                    float fx = (nx + offset.x) * cellSize;
-                    float fy = (ny + offset.y) * cellSize;
-
-                    float dist = (fx - worldX) * (fx - worldX) + (fy - worldY) * (fy - worldY);
-                    int regionType = BiomeDeterministic.HashRange(seed, nx, ny, RegionTypeSalt, RegionCount);
-
-                    if (dist < bestDist)
-                    {
-                        secondDist = bestDist;
-                        secondType = bestType;
-                        bestDist = dist;
-                        bestType = regionType;
-                    }
-                    else if (dist < secondDist)
-                    {
-                        secondDist = dist;
-                        secondType = regionType;
-                    }
-                }
-            }
-
-            float blend = 0f;
-            if (regionBlendWidth > 0f)
-            {
-                float edge = Mathf.Sqrt(secondDist) - Mathf.Sqrt(bestDist);
-                blend = Mathf.Clamp01((regionBlendWidth - edge) / regionBlendWidth);
-            }
-
-            return new RegionSample(bestType, secondType, blend);
-        }
-
-        private int ResolveRegionType(RegionSample sample, int worldX, int worldY)
-        {
-            if (sample.blend <= 0f || sample.primary == sample.secondary)
-            {
-                return sample.primary;
-            }
-
-            float mix = BiomeDeterministic.Hash01(seed, worldX, worldY, RegionBlendSalt);
-            return mix < sample.blend ? sample.secondary : sample.primary;
-        }
-
-        private int GetRegionTypeCached(int worldX, int worldY)
-        {
-            if (!IsValidPosition(worldX, worldY))
-            {
-                RegionSample sample = SampleRegion(worldX, worldY);
-                return ResolveRegionType(sample, worldX, worldY);
-            }
-
-            if (!regionTypeCacheValid[worldX, worldY])
-            {
-                RegionSample sample = SampleRegion(worldX, worldY);
-                regionTypeCache[worldX, worldY] = ResolveRegionType(sample, worldX, worldY);
-                regionTypeCacheValid[worldX, worldY] = true;
-            }
-
-            return regionTypeCache[worldX, worldY];
-        }
-
-        private int GetHeightLevelCached(int worldX, int worldY)
-        {
-            if (!IsValidPosition(worldX, worldY))
-            {
-                RegionSample sample = SampleRegion(worldX, worldY);
-                return ResolveHeight(sample, worldX, worldY);
-            }
-
-            if (!heightLevelCacheValid[worldX, worldY])
-            {
-                RegionSample sample = SampleRegion(worldX, worldY);
-                heightLevelCache[worldX, worldY] = ResolveHeight(sample, worldX, worldY);
-                heightLevelCacheValid[worldX, worldY] = true;
-            }
-
-            return heightLevelCache[worldX, worldY];
-        }
-
-        private int ResolveHeight(RegionSample sample, int worldX, int worldY)
-        {
-            int primaryHeight = GetRegionHeight(sample.primary);
-            int secondaryHeight = GetRegionHeight(sample.secondary);
-
-            float baseHeight = primaryHeight;
-            if (sample.blend > 0f && primaryHeight != secondaryHeight)
-            {
-                baseHeight = Mathf.Lerp(primaryHeight, secondaryHeight, sample.blend);
-            }
-
-            float noise = 0f;
-            if (heightNoise != null)
-            {
-                noise = heightNoise.GetNoise(worldX, worldY) * heightNoiseAmplitude;
-            }
-
-            float heightValue = baseHeight + noise;
-            int level = Mathf.RoundToInt(heightValue);
-            return Mathf.Clamp(level, minHeightLevel, maxHeightLevel);
-        }
-
-        private int GetRegionHeight(int regionType)
-        {
-            return ((RegionType)regionType) switch
-            {
-                RegionType.Mud => -1,
-                RegionType.Moss => 0,
-                RegionType.Flesh => 1,
-                _ => 0
-            };
-        }
-
-        private bool IsRegionAllowed(RegionMask mask, int regionType)
-        {
-            RegionMask region = (RegionMask)(1 << regionType);
-            return (mask & region) != 0;
-        }
-
-        private bool IsPoissonSelected(int worldX, int worldY, ObjectRule rule)
-        {
-            float density = GetDensityForRule(rule, worldX, worldY);
-            if (density <= 0f) return false;
-
-            float selfValue = BiomeDeterministic.Hash01(seed, worldX, worldY, rule.salt);
-            if (selfValue >= density) return false;
-
-            float radius = Mathf.Max(0.5f, rule.minDistance);
-            float radiusSq = radius * radius;
-            int r = Mathf.CeilToInt(radius);
-
-            for (int x = worldX - r; x <= worldX + r; x++)
-            {
-                for (int y = worldY - r; y <= worldY + r; y++)
-                {
-                    if (!IsValidPosition(x, y)) continue;
-                    if (x == worldX && y == worldY) continue;
-
-                    float dx = x - worldX;
-                    float dy = y - worldY;
-                    if (dx * dx + dy * dy > radiusSq) continue;
-
-                    float otherDensity = GetDensityForRule(rule, x, y);
-                    if (otherDensity <= 0f) continue;
-
-                    float otherValue = BiomeDeterministic.Hash01(seed, x, y, rule.salt);
-                    if (otherValue < otherDensity && otherValue < selfValue)
-                    {
-                        return false;
-                    }
-                }
-            }
-
-            return true;
-        }
-
-        private float GetDensityForRule(ObjectRule rule, int worldX, int worldY)
-        {
-            int regionType = GetRegionTypeCached(worldX, worldY);
-            if (!IsRegionAllowed(rule.regionMask, regionType)) return 0f;
-            return rule.density;
         }
 
         public override Vector3 GetPlayerSpawnPosition()

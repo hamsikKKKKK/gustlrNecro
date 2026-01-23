@@ -202,12 +202,6 @@ namespace Necrocis
                     sr.sprite = sprites[i];
                 }
 
-                // Y정렬 사용 - 플레이어가 포털보다 앞에 있으면 앞에 보이고, 뒤에 있으면 뒤에 보임
-                portalObj.AddComponent<SpriteYSort>();
-
-                // Billboard로 카메라 향하게 (2.5D)
-                portalObj.AddComponent<Billboard>();
-
                 // 콜라이더 (트리거)
                 BoxCollider col = portalObj.AddComponent<BoxCollider>();
                 col.isTrigger = true;

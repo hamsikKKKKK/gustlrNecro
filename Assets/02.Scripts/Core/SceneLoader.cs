@@ -13,10 +13,10 @@ namespace Necrocis
 
         [Header("씬 이름")]
         public const string SCENE_HUB = "Hub";
-        public const string SCENE_INTESTINE = "Biome";
-        public const string SCENE_LIVER = "Biome_Liver";
-        public const string SCENE_STOMACH = "Biome_Stomach";
-        public const string SCENE_LUNG = "Biome_Lung";
+        public const string SCENE_INTESTINE = "Intestine";
+        public const string SCENE_LIVER = "Liver";
+        public const string SCENE_STOMACH = "Stomach";
+        public const string SCENE_LUNG = "Lung";
 
         private bool isLoading = false;
         private bool forceHubRespawn = false;

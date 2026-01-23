@@ -39,7 +39,7 @@ namespace Necrocis
                 gameObject.AddComponent<Billboard>();
             }
 
-            // sortingOrder는 Initialize에서 설정 (남쪽만 고정, 나머지는 SpriteYSort)
+            // sortingOrder는 Initialize에서 설정
 
             // 좌우 벽 콜라이더 추가 (위아래로만 진입 가능)
             CreateSideWalls();

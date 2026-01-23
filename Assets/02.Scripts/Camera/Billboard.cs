@@ -13,6 +13,10 @@ namespace Necrocis
         [Header("오프셋")]
         [SerializeField] private float yOffset = 0.5f;  // 바닥에서 띄우기
 
+        [Header("최적화")]
+        [SerializeField] private bool updateOnlyWhenDirty = true;
+        [SerializeField] private UpdateMode updateMode = UpdateMode.Once;
+
         public enum BillboardMode
         {
             FaceCamera,         // 카메라를 완전히 바라봄
@@ -20,7 +24,17 @@ namespace Necrocis
             FixedRotation       // 고정 회전 (카메라 각도만 따라감)
         }
 
+        public enum UpdateMode
+        {
+            Continuous,
+            Once
+        }
+
         private Camera mainCamera;
+        private Quaternion lastCameraRotation;
+        private Vector3 lastCameraPosition;
+        private Vector3 lastPosition;
+        private bool hasUpdated;
 
         private void Start()
         {
@@ -30,7 +44,7 @@ namespace Necrocis
             Vector3 pos = transform.localPosition;
             pos.y += yOffset;
             transform.localPosition = pos;
-
+            lastPosition = transform.position;
         }
 
         private void LateUpdate()
@@ -39,6 +53,17 @@ namespace Necrocis
             {
                 mainCamera = Camera.main;
                 if (mainCamera == null) return;
+            }
+
+            if (updateMode == UpdateMode.Once && hasUpdated)
+            {
+                enabled = false;
+                return;
+            }
+
+            if (updateOnlyWhenDirty && hasUpdated && !IsDirty())
+            {
+                return;
             }
 
             switch (mode)
@@ -64,6 +89,38 @@ namespace Necrocis
                     transform.rotation = Quaternion.Euler(cameraAngleX, 0, 0);
                     break;
             }
+
+            lastCameraRotation = mainCamera.transform.rotation;
+            lastCameraPosition = mainCamera.transform.position;
+            lastPosition = transform.position;
+            hasUpdated = true;
+
+            if (updateMode == UpdateMode.Once)
+            {
+                enabled = false;
+            }
+        }
+
+        private bool IsDirty()
+        {
+            if (mode == BillboardMode.FaceCamera || mode == BillboardMode.FixedRotation)
+            {
+                return mainCamera.transform.rotation != lastCameraRotation;
+            }
+
+            if (mainCamera.transform.position != lastCameraPosition)
+            {
+                return true;
+            }
+
+            return transform.position != lastPosition;
+        }
+
+        public void SetUpdateMode(UpdateMode mode)
+        {
+            updateMode = mode;
+            enabled = true;
+            hasUpdated = false;
         }
     }
 }

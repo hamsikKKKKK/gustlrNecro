@@ -10,8 +10,19 @@ namespace Necrocis
         [Header("설정")]
         [SerializeField] private int baseSortingOrder = 1000;  // 타일맵보다 확실히 앞에
         [SerializeField] private float sortingMultiplier = 10f;
+        [SerializeField] private bool updateOnlyWhenDirty = true;
+        [SerializeField] private float positionEpsilon = 0.001f;
+        [SerializeField] private UpdateMode updateMode = UpdateMode.Once;
 
         private SpriteRenderer spriteRenderer;
+        private float lastZ = float.NaN;
+        private bool hasUpdated;
+
+        public enum UpdateMode
+        {
+            Continuous,
+            Once
+        }
 
         private void Awake()
         {
@@ -39,8 +50,37 @@ namespace Necrocis
 
             // Z 위치 (또는 Y)가 작을수록 (아래/앞) sortingOrder가 높음
             // 2.5D에서 Z가 작을수록 카메라에 가까움
+            if (updateMode == UpdateMode.Once && hasUpdated)
+            {
+                enabled = false;
+                return;
+            }
+
+            if (updateOnlyWhenDirty)
+            {
+                float z = transform.position.z;
+                if (!float.IsNaN(lastZ) && Mathf.Abs(z - lastZ) <= positionEpsilon)
+                {
+                    return;
+                }
+                lastZ = z;
+            }
+
             float sortValue = -transform.position.z * sortingMultiplier;
             spriteRenderer.sortingOrder = baseSortingOrder + Mathf.RoundToInt(sortValue);
+            hasUpdated = true;
+
+            if (updateMode == UpdateMode.Once)
+            {
+                enabled = false;
+            }
+        }
+
+        public void SetUpdateMode(UpdateMode mode)
+        {
+            updateMode = mode;
+            enabled = true;
+            hasUpdated = false;
         }
     }
 }
