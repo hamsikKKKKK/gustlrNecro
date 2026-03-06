@@ -10,6 +10,8 @@ namespace Necrocis
         [Header("설정")]
         [SerializeField] private int baseSortingOrder = 1000;  // 타일맵보다 확실히 앞에
         [SerializeField] private float sortingMultiplier = 10f;
+        [SerializeField] private bool useMinSortingClamp = true;
+        [SerializeField] private int minSortingOrder = -900;
         [SerializeField] private bool updateOnlyWhenDirty = true;
         [SerializeField] private float positionEpsilon = 0.001f;
         [SerializeField] private UpdateMode updateMode = UpdateMode.Once;
@@ -67,7 +69,12 @@ namespace Necrocis
             }
 
             float sortValue = -transform.position.z * sortingMultiplier;
-            spriteRenderer.sortingOrder = baseSortingOrder + Mathf.RoundToInt(sortValue);
+            int order = baseSortingOrder + Mathf.RoundToInt(sortValue);
+            if (useMinSortingClamp)
+            {
+                order = Mathf.Max(minSortingOrder, order);
+            }
+            spriteRenderer.sortingOrder = order;
             hasUpdated = true;
 
             if (updateMode == UpdateMode.Once)

@@ -906,6 +906,18 @@ namespace Necrocis
 
         public float GetGroundHeight(int gridX, int gridY)
         {
+            // 경계 밖 좌표가 들어와도 가장자리 타일 높이를 사용해 Y 스냅 급변을 방지한다.
+            if (!IsValidPosition(gridX, gridY))
+            {
+                if (mapWidth <= 0 || mapHeight <= 0)
+                {
+                    return 0f;
+                }
+
+                gridX = Mathf.Clamp(gridX, 0, mapWidth - 1);
+                gridY = Mathf.Clamp(gridY, 0, mapHeight - 1);
+            }
+
             return GetHeightLevel(gridX, gridY) * heightStep;
         }
 
