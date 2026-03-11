@@ -228,12 +228,7 @@ public class ReadmeEditor : Editor
     bool LinkLabel(GUIContent label, params GUILayoutOption[] options)
     {
         var position = GUILayoutUtility.GetRect(label, LinkStyle, options);
-
-        Handles.BeginGUI();
-        Handles.color = LinkStyle.normal.textColor;
-        Handles.DrawLine(new Vector3(position.xMin, position.yMax), new Vector3(position.xMax, position.yMax));
-        Handles.color = Color.white;
-        Handles.EndGUI();
+        EditorGUI.DrawRect(new Rect(position.xMin, position.yMax - 1f, position.width, 1f), LinkStyle.normal.textColor);
 
         EditorGUIUtility.AddCursorRect(position, MouseCursor.Link);
 

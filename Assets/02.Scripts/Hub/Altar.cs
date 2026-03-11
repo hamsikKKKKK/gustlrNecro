@@ -215,17 +215,11 @@ namespace Necrocis
         }
 
 #if UNITY_EDITOR
-        private void OnDrawGizmos()
+        private void OnDrawGizmosSelected()
         {
             // 상호작용 범위
             Gizmos.color = isActivated ? Color.magenta : Color.yellow;
             Gizmos.DrawWireSphere(transform.position, interactionRadius);
-
-            // 라벨
-            UnityEditor.Handles.Label(
-                transform.position + Vector3.up * 2.5f,
-                isActivated ? "재단 (활성화)" : "재단"
-            );
 
             // 부산물 슬롯 위치
             Gizmos.color = Color.red;

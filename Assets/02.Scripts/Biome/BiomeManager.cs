@@ -32,8 +32,6 @@ namespace Necrocis
         [SerializeField] protected bool destroyChunkRootOnUnload = true;
 
         [Header("오브젝트 로딩 설정")]
-        [SerializeField] protected int objectLoadDistance;
-        [SerializeField] protected int objectUnloadDistance;
         [SerializeField] protected int objectGenerationBudget; // 프레임당 처리 예산
 
         [Header("Tilemap")]
@@ -74,7 +72,6 @@ namespace Necrocis
         protected HashSet<Vector2Int> loadedChunks = new HashSet<Vector2Int>();
         private readonly HashSet<Vector2Int> chunksToLoadCache = new HashSet<Vector2Int>();
         private readonly List<Vector2Int> chunksToUnloadCache = new List<Vector2Int>();
-        private readonly HashSet<Vector2Int> objectsToLoadCache = new HashSet<Vector2Int>();
         protected Transform playerTransform;
         protected Vector2Int lastPlayerChunk = new Vector2Int(-999, -999);
         protected float chunkUpdateTimer = 0f;
@@ -85,11 +82,12 @@ namespace Necrocis
         // 로드된 청크 내 이동 불가 타일
         protected HashSet<Vector2Int> blockedCells = new HashSet<Vector2Int>();
 
-        private readonly Dictionary<BiomeObjectKind, Stack<GameObject>> objectPool = new Dictionary<BiomeObjectKind, Stack<GameObject>>();
+        private readonly Dictionary<ObjectPoolKey, Stack<GameObject>> objectPool = new Dictionary<ObjectPoolKey, Stack<GameObject>>();
         private readonly Stack<GameObject> chunkRootPool = new Stack<GameObject>();
         private Transform pooledChunkRootsParent;
         private Dictionary<BiomeObjectKind, int> poolLimitLookup;
         private int pooledObjectCount;
+        private readonly HashSet<Vector2Int> reportedResidualChunks = new HashSet<Vector2Int>();
 
         public int MapWidth => mapWidth;
         public int MapHeight => mapHeight;
@@ -292,11 +290,13 @@ namespace Necrocis
             Vector2Int playerGrid = WorldToGrid(playerTransform.position);
             Vector2Int playerChunk = GridToChunk(playerGrid.x, playerGrid.y);
 
-            // 플레이어 청크가 변경되지 않았으면 스킵
-            if (playerChunk == lastPlayerChunk) return;
+            if (playerChunk == lastPlayerChunk)
+            {
+                SweepOrphanedChunkObjects();
+                return;
+            }
             lastPlayerChunk = playerChunk;
 
-            // 로드할 청크 목록
             chunksToLoadCache.Clear();
             for (int dx = -loadDistance; dx <= loadDistance; dx++)
             {
@@ -304,7 +304,6 @@ namespace Necrocis
                 {
                     int cx = playerChunk.x + dx;
                     int cy = playerChunk.y + dy;
-
                     if (IsValidChunk(cx, cy))
                     {
                         chunksToLoadCache.Add(new Vector2Int(cx, cy));
@@ -312,7 +311,6 @@ namespace Necrocis
                 }
             }
 
-            // 언로드할 청크 찾기
             chunksToUnloadCache.Clear();
             foreach (var chunkPos in loadedChunks)
             {
@@ -338,7 +336,7 @@ namespace Necrocis
                 }
             }
 
-            UpdateObjectChunks(playerChunk);
+            SweepOrphanedChunkObjects();
         }
 
         /// <summary>
@@ -361,6 +359,7 @@ namespace Necrocis
             OnChunkLoaded(chunk);
             chunk.isLoaded = true;
             loadedChunks.Add(new Vector2Int(chunkX, chunkY));
+            LoadChunkObjects(chunk);
             Log($"[BiomeManager] 청크 로드: ({chunkX}, {chunkY})");
         }
 
@@ -654,43 +653,6 @@ namespace Necrocis
             yield break;
         }
 
-        private void UpdateObjectChunks(Vector2Int playerChunk)
-        {
-            if (chunks == null) return;
-
-            objectsToLoadCache.Clear();
-            for (int dx = -objectLoadDistance; dx <= objectLoadDistance; dx++)
-            {
-                for (int dy = -objectLoadDistance; dy <= objectLoadDistance; dy++)
-                {
-                    int cx = playerChunk.x + dx;
-                    int cy = playerChunk.y + dy;
-                    if (IsValidChunk(cx, cy))
-                    {
-                        Vector2Int pos = new Vector2Int(cx, cy);
-                        if (loadedChunks.Contains(pos))
-                        {
-                            objectsToLoadCache.Add(pos);
-                        }
-                    }
-                }
-            }
-
-            foreach (var chunkPos in loadedChunks)
-            {
-                Chunk chunk = chunks[chunkPos.x, chunkPos.y];
-                int dist = Mathf.Max(Mathf.Abs(chunkPos.x - playerChunk.x), Mathf.Abs(chunkPos.y - playerChunk.y));
-                if (dist > objectUnloadDistance)
-                {
-                    UnloadChunkObjects(chunk);
-                }
-                else if (objectsToLoadCache.Contains(chunkPos))
-                {
-                    LoadChunkObjects(chunk);
-                }
-            }
-        }
-
         private void LoadChunkObjects(Chunk chunk)
         {
             if (chunk.isObjectsLoaded || chunk.objectGenerationRoutine != null) return;
@@ -713,7 +675,7 @@ namespace Necrocis
 
         private void UnloadChunkObjects(Chunk chunk)
         {
-            if (!chunk.isObjectsLoaded && chunk.objectGenerationRoutine == null) return;
+            if (!HasResidualChunkObjects(chunk)) return;
 
             if (chunk.objectGenerationRoutine != null)
             {
@@ -722,8 +684,10 @@ namespace Necrocis
             }
 
             DestroyChunkObjects(chunk);
+            ReleaseChunkObjectsRoot(chunk);
             chunk.isObjectsLoaded = false;
             Log($"[BiomeManager] 오브젝트 언로드: ({chunk.chunkX}, {chunk.chunkY})");
+            StartCoroutine(VerifyChunkObjectsClearedNextFrame(chunk.chunkX, chunk.chunkY));
         }
 
         /// <summary>
@@ -752,30 +716,326 @@ namespace Necrocis
         /// </summary>
         protected virtual void DestroyChunkObjects(Chunk chunk)
         {
-            foreach (var state in chunk.objectStates)
+            HashSet<GameObject> releasedObjects = new HashSet<GameObject>();
+
+            if (chunk.liveObjects.Count > 0)
             {
-                if (state != null)
+                GameObject[] liveSnapshot = chunk.liveObjects.ToArray();
+                for (int i = 0; i < liveSnapshot.Length; i++)
                 {
-                    state.SuppressDestroy();
-                    if (state.BlocksMovement)
-                    {
-                        blockedCells.Remove(new Vector2Int(state.ObjectId.x, state.ObjectId.y));
-                    }
-                    ReleasePooledObject(state.ObjectId.type, state.gameObject);
+                    ReleaseChunkObject(liveSnapshot[i], releasedObjects);
                 }
             }
 
-            chunk.gameObjects.Clear();
-            chunk.objectStates.Clear();
+            if (chunk.objectsRoot != null)
+            {
+                int childCount = chunk.objectsRoot.childCount;
+                GameObject[] rootChildren = new GameObject[childCount];
+                for (int i = 0; i < childCount; i++)
+                {
+                    rootChildren[i] = chunk.objectsRoot.GetChild(i).gameObject;
+                }
+
+                for (int i = 0; i < rootChildren.Length; i++)
+                {
+                    ReleaseChunkObject(rootChildren[i], releasedObjects);
+                }
+            }
+
+            chunk.liveObjects.Clear();
         }
 
-        protected void RegisterObject(Chunk chunk, GameObject obj, ObjectId id, bool blocksMovement)
+        private bool HasChunkObjectsInHierarchy(Chunk chunk)
         {
-            chunk.gameObjects.Add(obj);
+            if (objectsParent == null) return false;
 
-            if (blocksMovement)
+            BiomeObjectState[] states = objectsParent.GetComponentsInChildren<BiomeObjectState>(true);
+            for (int i = 0; i < states.Length; i++)
             {
-                blockedCells.Add(new Vector2Int(id.x, id.y));
+                if (IsHierarchyStateForChunk(chunk, states[i]))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private bool IsHierarchyStateForChunk(Chunk chunk, BiomeObjectState state)
+        {
+            if (chunk == null || state == null) return false;
+            if (pooledObjectsParent != null && state.transform.IsChildOf(pooledObjectsParent)) return false;
+
+            Vector2Int chunkCoord = GridToChunk(state.ObjectId.x, state.ObjectId.y);
+            return chunkCoord.x == chunk.chunkX && chunkCoord.y == chunk.chunkY;
+        }
+
+        private bool HasResidualChunkObjects(Chunk chunk)
+        {
+            if (chunk == null) return false;
+
+            return chunk.isObjectsLoaded ||
+                   chunk.objectGenerationRoutine != null ||
+                   chunk.liveObjects.Count > 0 ||
+                   chunk.objectsRoot != null ||
+                   HasChunkObjectsInHierarchy(chunk);
+        }
+
+        private void SweepOrphanedChunkObjects()
+        {
+            if (chunks == null || reportedResidualChunks.Count == 0) return;
+
+            Vector2Int[] residualChunks = new Vector2Int[reportedResidualChunks.Count];
+            reportedResidualChunks.CopyTo(residualChunks);
+
+            for (int i = 0; i < residualChunks.Length; i++)
+            {
+                Vector2Int chunkPos = residualChunks[i];
+                if (!IsValidChunk(chunkPos.x, chunkPos.y))
+                {
+                    reportedResidualChunks.Remove(chunkPos);
+                    continue;
+                }
+
+                Chunk chunk = chunks[chunkPos.x, chunkPos.y];
+                if (chunk == null || chunk.isLoaded)
+                {
+                    continue;
+                }
+
+                if (HasResidualChunkObjects(chunk))
+                {
+                    ReportResidualChunkObjects("Orphaned chunk cleanup retry", chunk);
+                    UnloadChunkObjects(chunk);
+                }
+                else
+                {
+                    reportedResidualChunks.Remove(chunkPos);
+                }
+            }
+        }
+
+        private System.Collections.IEnumerator VerifyChunkObjectsClearedNextFrame(int chunkX, int chunkY)
+        {
+            yield return null;
+
+            if (!IsValidChunk(chunkX, chunkY) || chunks == null)
+            {
+                yield break;
+            }
+
+            Chunk chunk = chunks[chunkX, chunkY];
+            if (HasResidualChunkObjects(chunk))
+            {
+                ReportResidualChunkObjects("Residual chunk objects after unload", chunk);
+                ForceDestroyResidualChunkObjects(chunk);
+            }
+            else
+            {
+                reportedResidualChunks.Remove(new Vector2Int(chunkX, chunkY));
+            }
+        }
+
+        private void ReportResidualChunkObjects(string context, Chunk chunk)
+        {
+            if (chunk == null)
+            {
+                return;
+            }
+
+            Vector2Int chunkPos = new Vector2Int(chunk.chunkX, chunk.chunkY);
+            if (!reportedResidualChunks.Add(chunkPos) && !enableDebugLogs)
+            {
+                return;
+            }
+
+            System.Text.StringBuilder sb = new System.Text.StringBuilder();
+            sb.Append("[BiomeManager] ");
+            sb.Append(context);
+            sb.Append(" chunk=(");
+            sb.Append(chunk.chunkX);
+            sb.Append(", ");
+            sb.Append(chunk.chunkY);
+            sb.Append(")");
+            sb.Append(" isLoaded=");
+            sb.Append(chunk.isLoaded);
+            sb.Append(" isObjectsLoaded=");
+            sb.Append(chunk.isObjectsLoaded);
+            sb.Append(" routine=");
+            sb.Append(chunk.objectGenerationRoutine != null);
+            sb.Append(" manifestCount=");
+            sb.Append(chunk.spawnManifest.Count);
+            sb.Append(" liveObjects=");
+            sb.Append(chunk.liveObjects.Count);
+            sb.Append(" objectsRoot=");
+            sb.Append(chunk.objectsRoot != null ? chunk.objectsRoot.name : "null");
+
+            if (objectsParent != null)
+            {
+                BiomeObjectState[] states = objectsParent.GetComponentsInChildren<BiomeObjectState>(true);
+                int detailCount = 0;
+                for (int i = 0; i < states.Length; i++)
+                {
+                    BiomeObjectState state = states[i];
+                    if (!IsHierarchyStateForChunk(chunk, state))
+                    {
+                        continue;
+                    }
+
+                    if (detailCount == 0)
+                    {
+                        sb.Append(" residuals=");
+                    }
+
+                    if (detailCount < 16)
+                    {
+                        if (detailCount > 0)
+                        {
+                            sb.Append(" | ");
+                        }
+
+                        Transform tr = state.transform;
+                        sb.Append(tr.name);
+                        sb.Append(" activeSelf=");
+                        sb.Append(state.gameObject.activeSelf);
+                        sb.Append(" activeInHierarchy=");
+                        sb.Append(state.gameObject.activeInHierarchy);
+                        sb.Append(" parent=");
+                        sb.Append(GetTransformPath(tr.parent));
+                        sb.Append(" objectId=(");
+                        sb.Append(state.ObjectId.x);
+                        sb.Append(", ");
+                        sb.Append(state.ObjectId.y);
+                        sb.Append(", ");
+                        sb.Append((int)state.ObjectId.type);
+                        sb.Append(")");
+                    }
+
+                    detailCount++;
+                }
+
+                if (detailCount > 16)
+                {
+                    sb.Append(" | ... total=");
+                    sb.Append(detailCount);
+                }
+            }
+
+            Debug.LogWarning(sb.ToString(), this);
+        }
+
+        private void ForceDestroyResidualChunkObjects(Chunk chunk)
+        {
+            if (chunk == null)
+            {
+                return;
+            }
+
+            chunk.liveObjects.Clear();
+            chunk.isObjectsLoaded = false;
+            chunk.objectGenerationRoutine = null;
+
+            if (chunk.objectsRoot != null)
+            {
+                GameObject runtimeRoot = chunk.objectsRoot.gameObject;
+                chunk.objectsRoot = null;
+                DestroyChunkRootObject(runtimeRoot);
+            }
+
+            if (objectsParent == null)
+            {
+                return;
+            }
+
+            BiomeObjectState[] states = objectsParent.GetComponentsInChildren<BiomeObjectState>(true);
+            for (int i = 0; i < states.Length; i++)
+            {
+                BiomeObjectState state = states[i];
+                if (!IsHierarchyStateForChunk(chunk, state))
+                {
+                    continue;
+                }
+
+                if (state.BlocksMovement)
+                {
+                    RemoveBlockedCells(state.OccupiedCells);
+                }
+
+                DestroyPooledObject(state.gameObject);
+            }
+        }
+
+        private static string GetTransformPath(Transform target)
+        {
+            if (target == null)
+            {
+                return "<null>";
+            }
+
+            System.Text.StringBuilder sb = new System.Text.StringBuilder(target.name);
+            Transform current = target.parent;
+            while (current != null)
+            {
+                sb.Insert(0, '/');
+                sb.Insert(0, current.name);
+                current = current.parent;
+            }
+            return sb.ToString();
+        }
+
+        private void ReleaseChunkObject(GameObject obj, HashSet<GameObject> releasedObjects)
+        {
+            if (obj == null || releasedObjects == null || !releasedObjects.Add(obj))
+            {
+                return;
+            }
+
+            if (pooledObjectsParent != null && obj.transform.parent == pooledObjectsParent && !obj.activeSelf)
+            {
+                return;
+            }
+
+            EnemySpawner spawner = obj.GetComponent<EnemySpawner>();
+            if (spawner != null)
+            {
+                spawner.ReleaseSpawnedEnemies();
+                spawner.enabled = false;
+            }
+
+            EnemyController enemy = obj.GetComponent<EnemyController>();
+            if (enemy != null)
+            {
+                enemy.ReleaseToPool();
+                return;
+            }
+
+            BiomeObjectState state = obj.GetComponent<BiomeObjectState>();
+            if (state == null)
+            {
+                DestroyPooledObject(obj);
+                return;
+            }
+
+            state.SuppressDestroy();
+            if (state.BlocksMovement)
+            {
+                RemoveBlockedCells(state.OccupiedCells);
+            }
+
+            ReleasePooledObject(state.PoolKey, obj);
+        }
+
+        protected void RegisterObject(Chunk chunk, GameObject obj, ObjectId id, ObjectPoolKey poolKey, bool blocksMovement)
+        {
+            EnsureChunkObjectsRoot(chunk);
+            if (chunk.objectsRoot != null && obj.transform.parent != chunk.objectsRoot)
+            {
+                obj.transform.SetParent(chunk.objectsRoot, true);
+            }
+
+            if (!chunk.liveObjects.Contains(obj))
+            {
+                chunk.liveObjects.Add(obj);
             }
 
             BiomeObjectState state = obj.GetComponent<BiomeObjectState>();
@@ -783,11 +1043,27 @@ namespace Necrocis
             {
                 state = obj.AddComponent<BiomeObjectState>();
             }
-            state.Initialize(this, id, blocksMovement);
-            chunk.objectStates.Add(state);
+
+            if (state.BlocksMovement)
+            {
+                RemoveBlockedCells(state.OccupiedCells);
+            }
+
+            state.Initialize(this, id, poolKey, blocksMovement);
+
+            if (blocksMovement)
+            {
+                List<Vector2Int> occupiedCells = GetOccupiedCellsForObject(obj, id);
+                state.SetOccupiedCells(occupiedCells);
+                AddBlockedCells(occupiedCells);
+            }
+            else
+            {
+                state.SetOccupiedCells(null);
+            }
         }
 
-        protected GameObject GetPooledObject(BiomeObjectKind poolKey, System.Func<GameObject> createFunc)
+        protected GameObject GetPooledObject(ObjectPoolKey poolKey, System.Func<GameObject> createFunc)
         {
             if (!objectPool.TryGetValue(poolKey, out Stack<GameObject> stack))
             {
@@ -801,18 +1077,17 @@ namespace Necrocis
                 pooledObjectCount--;
                 if (obj != null)
                 {
-                    obj.SetActive(true);
-                    Log($"[BiomePool] 재사용: type={poolKey} name={obj.name}");
+                    Log($"[BiomePool] 재사용: type={poolKey.kind} archetype={poolKey.archetypeId} name={obj.name}");
                     return obj;
                 }
             }
 
             GameObject created = createFunc();
-            Log($"[BiomePool] 생성: type={poolKey} name={created.name}");
+            Log($"[BiomePool] 생성: type={poolKey.kind} archetype={poolKey.archetypeId} name={created.name}");
             return created;
         }
 
-        protected void ReleasePooledObject(BiomeObjectKind poolKey, GameObject obj)
+        protected void ReleasePooledObject(ObjectPoolKey poolKey, GameObject obj)
         {
             if (obj == null) return;
 
@@ -822,7 +1097,7 @@ namespace Necrocis
                 objectPool[poolKey] = stack;
             }
 
-            int maxSize = GetPoolLimit(poolKey);
+            int maxSize = GetPoolLimit(poolKey.kind);
             if (maxSize <= 0 || stack.Count >= maxSize)
             {
                 DestroyPooledObject(obj);
@@ -839,12 +1114,18 @@ namespace Necrocis
             obj.transform.SetParent(pooledObjectsParent, false);
             stack.Push(obj);
             pooledObjectCount++;
-            Log($"[BiomePool] 반환: type={poolKey} name={obj.name}");
+            Log($"[BiomePool] 반환: type={poolKey.kind} archetype={poolKey.archetypeId} name={obj.name}");
         }
 
-        internal void NotifyObjectRemoved(ObjectId id, bool blocksMovement)
+        internal void NotifyObjectRemoved(ObjectId id, bool blocksMovement, System.Collections.Generic.IReadOnlyList<Vector2Int> occupiedCells)
         {
             if (!blocksMovement) return;
+            if (occupiedCells != null && occupiedCells.Count > 0)
+            {
+                RemoveBlockedCells(occupiedCells);
+                return;
+            }
+
             blockedCells.Remove(new Vector2Int(id.x, id.y));
         }
 
@@ -1045,6 +1326,24 @@ namespace Necrocis
             return root;
         }
 
+        private void EnsureChunkObjectsRoot(Chunk chunk)
+        {
+            if (chunk.objectsRoot != null || objectsParent == null) return;
+
+            GameObject root = new GameObject($"ChunkRuntime_{chunk.chunkX}_{chunk.chunkY}");
+            root.transform.SetParent(objectsParent, false);
+            chunk.objectsRoot = root.transform;
+        }
+
+        private void ReleaseChunkObjectsRoot(Chunk chunk)
+        {
+            if (chunk.objectsRoot == null) return;
+
+            chunk.objectsRoot.gameObject.SetActive(false);
+            DestroyChunkRootObject(chunk.objectsRoot.gameObject);
+            chunk.objectsRoot = null;
+        }
+
         private void ReleaseChunkRoot(Chunk chunk)
         {
             if (chunk.root == null) return;
@@ -1126,6 +1425,13 @@ namespace Necrocis
         private void DestroyPooledObject(GameObject obj)
         {
             if (obj == null) return;
+
+            obj.SetActive(false);
+            if (pooledObjectsParent != null)
+            {
+                obj.transform.SetParent(pooledObjectsParent, false);
+            }
+
             if (Application.isPlaying)
             {
                 Destroy(obj);
@@ -1133,6 +1439,80 @@ namespace Necrocis
             else
             {
                 DestroyImmediate(obj);
+            }
+        }
+
+        private List<Vector2Int> GetOccupiedCellsForObject(GameObject obj, ObjectId id)
+        {
+            List<Vector2Int> occupiedCells = new List<Vector2Int>();
+            if (obj == null)
+            {
+                occupiedCells.Add(new Vector2Int(id.x, id.y));
+                return occupiedCells;
+            }
+
+            BoxCollider collider = obj.GetComponent<BoxCollider>();
+            if (collider == null || !collider.enabled || collider.isTrigger)
+            {
+                occupiedCells.Add(new Vector2Int(id.x, id.y));
+                return occupiedCells;
+            }
+
+            Vector3 lossyScale = obj.transform.lossyScale;
+            lossyScale = new Vector3(Mathf.Abs(lossyScale.x), Mathf.Abs(lossyScale.y), Mathf.Abs(lossyScale.z));
+            Vector3 halfSize = Vector3.Scale(collider.size, lossyScale) * 0.5f;
+            Vector3 center = obj.transform.TransformPoint(collider.center);
+
+            float epsilon = tileSize * 0.001f;
+            int minX = Mathf.FloorToInt((center.x - halfSize.x + epsilon) / tileSize);
+            int maxX = Mathf.FloorToInt((center.x + halfSize.x - epsilon) / tileSize);
+            int minY = Mathf.FloorToInt((center.z - halfSize.z + epsilon) / tileSize);
+            int maxY = Mathf.FloorToInt((center.z + halfSize.z - epsilon) / tileSize);
+
+            HashSet<Vector2Int> uniqueCells = new HashSet<Vector2Int>();
+            for (int x = minX; x <= maxX; x++)
+            {
+                for (int y = minY; y <= maxY; y++)
+                {
+                    if (IsValidPosition(x, y))
+                    {
+                        uniqueCells.Add(new Vector2Int(x, y));
+                    }
+                }
+            }
+
+            if (uniqueCells.Count == 0)
+            {
+                uniqueCells.Add(new Vector2Int(id.x, id.y));
+            }
+
+            occupiedCells.AddRange(uniqueCells);
+            return occupiedCells;
+        }
+
+        private void AddBlockedCells(System.Collections.Generic.IEnumerable<Vector2Int> occupiedCells)
+        {
+            if (occupiedCells == null)
+            {
+                return;
+            }
+
+            foreach (Vector2Int cell in occupiedCells)
+            {
+                blockedCells.Add(cell);
+            }
+        }
+
+        private void RemoveBlockedCells(System.Collections.Generic.IEnumerable<Vector2Int> occupiedCells)
+        {
+            if (occupiedCells == null)
+            {
+                return;
+            }
+
+            foreach (Vector2Int cell in occupiedCells)
+            {
+                blockedCells.Remove(cell);
             }
         }
 
@@ -1198,6 +1578,66 @@ namespace Necrocis
         }
     }
 
+    public struct ObjectPoolKey
+    {
+        public BiomeObjectKind kind;
+        public int archetypeId;
+
+        public ObjectPoolKey(BiomeObjectKind kind, int archetypeId = 0)
+        {
+            this.kind = kind;
+            this.archetypeId = archetypeId;
+        }
+
+        public override int GetHashCode()
+        {
+            unchecked
+            {
+                int hash = 17;
+                hash = hash * 31 + (int)kind;
+                hash = hash * 31 + archetypeId;
+                return hash;
+            }
+        }
+
+        public override bool Equals(object obj)
+        {
+            if (obj is ObjectPoolKey other)
+            {
+                return kind == other.kind && archetypeId == other.archetypeId;
+            }
+            return false;
+        }
+    }
+
+    public enum ChunkSpawnCategory
+    {
+        SceneObject = 0,
+        EnemySpawner = 1,
+        Portal = 2
+    }
+
+    [System.Serializable]
+    public struct ChunkSpawnRecord
+    {
+        public ChunkSpawnCategory category;
+        public BiomeObjectKind objectKind;
+        public int configIndex;
+        public int x;
+        public int y;
+        public bool blocksMovement;
+
+        public ChunkSpawnRecord(ChunkSpawnCategory category, BiomeObjectKind objectKind, int configIndex, int x, int y, bool blocksMovement)
+        {
+            this.category = category;
+            this.objectKind = objectKind;
+            this.configIndex = configIndex;
+            this.x = x;
+            this.y = y;
+            this.blocksMovement = blocksMovement;
+        }
+    }
+
     /// <summary>
     /// 청크 데이터
     /// </summary>
@@ -1211,6 +1651,7 @@ namespace Necrocis
         public bool isObjectsLoaded;
 
         public GameObject root;
+        public Transform objectsRoot;
         public Tilemap[] tilemaps;
         public TilemapRenderer[] tilemapRenderers;
         public Tilemap[] cliffTilemaps;
@@ -1225,8 +1666,9 @@ namespace Necrocis
 
         public Coroutine objectGenerationRoutine;
 
-        public List<GameObject> gameObjects = new List<GameObject>();
-        public List<BiomeObjectState> objectStates = new List<BiomeObjectState>();
+        public bool isSpawnManifestBuilt;
+        public List<ChunkSpawnRecord> spawnManifest = new List<ChunkSpawnRecord>();
+        public List<GameObject> liveObjects = new List<GameObject>();
 
         public Chunk(int x, int y, int size)
         {
@@ -1301,6 +1743,7 @@ namespace Necrocis
         LargeObstacle = 3,
         AnimatedDecoration = 4,
         Item = 5,
+        EnemySpawner = 6,
         Portal = 100
     }
 

@@ -32,6 +32,9 @@ namespace Necrocis
         [Header("Objects")]
         public List<BiomeObjectRuleConfig> objectRules = new List<BiomeObjectRuleConfig>();
 
+        [Header("Enemies")]
+        public List<EnemySpawnRuleConfig> enemySpawnRules = new List<EnemySpawnRuleConfig>();
+
         [Header("Return Portal")]
         public PortalConfig returnPortal = new PortalConfig();
 
@@ -130,5 +133,54 @@ namespace Necrocis
         [Header("Collider")]
         public bool addCollider = true;
         public bool isTrigger = true;
+    }
+
+    [System.Serializable]
+    public class EnemySpawnRuleConfig
+    {
+        public string name = "Enemy";
+
+        [Header("Poisson")]
+        public float density = 0.0025f;
+        public float minDistance = 8f;
+        public int poissonSalt = 400;
+
+        [Tooltip("비워두면 모든 지역에서 허용")]
+        public List<int> allowedRegions = new List<int>();
+
+        [Header("Spawner")]
+        public int maxAlive = 1;
+        public float activationRadius = 20f;
+        public float respawnCooldown = 8f;
+        public float spawnRadius = 1.5f;
+
+        [Header("Movement")]
+        public float moveSpeed = 1.5f;
+        public float stoppingDistance = 0.1f;
+        public float wanderRadius = 4f;
+        public float chaseRadius = 6f;
+        public float leashRadius = 8f;
+        public Vector2 idleDelayRange = new Vector2(0.5f, 1.5f);
+
+        [Header("Separation")]
+        public float separationDistance = 1.1f;
+        public float separationStrength = 1f;
+
+        [Header("Visual")]
+        public float heightOffset = 0f;
+        public Vector3 scale = Vector3.one;
+        public int sortingOrder = 1000;
+        public bool useBillboard = true;
+        public bool useYSort = true;
+        public float animationSpeed = 0.15f;
+
+        [Header("Physics")]
+        public bool addCollider = true;
+        public bool isTrigger = false;
+        public Vector3 colliderSize = new Vector3(0.7f, 1.1f, 0.7f);
+        public Vector3 colliderCenter = new Vector3(0f, 0.55f, 0f);
+
+        public Sprite[] idleSprites;
+        public Sprite[] moveSprites;
     }
 }

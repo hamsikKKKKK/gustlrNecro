@@ -9,6 +9,7 @@ namespace Necrocis
     public class PlayerController : MonoBehaviour
     {
         public static PlayerController Instance { get; private set; }
+        private static readonly Quaternion FixedPlayerRotation = Quaternion.identity;
 
         [Header("이동")]
         [SerializeField] private float moveSpeed = 5f;
@@ -90,11 +91,13 @@ namespace Necrocis
             {
                 ySort = spriteRenderer.gameObject.AddComponent<SpriteYSort>();
             }
+            ySort.Configure(SpriteYSort.WorldDynamicBaseSortingOrder, true, SpriteYSort.WorldDynamicMinSortingOrder);
             ySort.SetUpdateMode(SpriteYSort.UpdateMode.Continuous);
 
             // 물리 컴포넌트 확인
             rb = GetComponent<Rigidbody>();
             characterController = GetComponent<CharacterController>();
+            ApplyLockedRotation();
         }
 
         private void Start()
@@ -109,6 +112,7 @@ namespace Necrocis
 
             // 초기 애니메이션 (대기)
             SetAnimation(idleSprites, idleFrameRate);
+            ApplyLockedRotation();
 
             Debug.Log($"[Player] 시작 위치: {transform.position}");
         }
@@ -117,12 +121,14 @@ namespace Necrocis
         {
             HandleInput();
             UpdateAnimation();
+            ApplyLockedRotation();
         }
 
         private void FixedUpdate()
         {
             Move();
             ApplyLockedY();
+            ApplyLockedRotation();
         }
 
         /// <summary>
@@ -380,6 +386,7 @@ namespace Necrocis
             }
 
             ApplyLockedY();
+            ApplyLockedRotation();
         }
 
         public void LockY(float y)
@@ -429,6 +436,17 @@ namespace Necrocis
             Vector3 fallback = transform.position;
             fallback.y = desiredY;
             transform.position = fallback;
+        }
+
+        private void ApplyLockedRotation()
+        {
+            if (rb != null)
+            {
+                rb.rotation = FixedPlayerRotation;
+                rb.angularVelocity = Vector3.zero;
+            }
+
+            transform.rotation = FixedPlayerRotation;
         }
 
         /// <summary>

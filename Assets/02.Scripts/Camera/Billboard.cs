@@ -34,17 +34,28 @@ namespace Necrocis
         private Quaternion lastCameraRotation;
         private Vector3 lastCameraPosition;
         private Vector3 lastPosition;
+        private Vector3 baseLocalPosition;
         private bool hasUpdated;
+        private bool hasBaseLocalPosition;
 
         private void Start()
         {
             mainCamera = Camera.main;
-
-            // Y 오프셋 적용
-            Vector3 pos = transform.localPosition;
-            pos.y += yOffset;
-            transform.localPosition = pos;
+            CaptureBaseLocalPosition();
+            ApplyYOffset();
             lastPosition = transform.position;
+        }
+
+        private void OnEnable()
+        {
+            if (!hasBaseLocalPosition)
+            {
+                return;
+            }
+
+            ApplyYOffset();
+            lastPosition = transform.position;
+            hasUpdated = false;
         }
 
         private void LateUpdate()
@@ -121,6 +132,33 @@ namespace Necrocis
             updateMode = mode;
             enabled = true;
             hasUpdated = false;
+        }
+
+        public void ResetBaseLocalPosition(Vector3 newBaseLocalPosition)
+        {
+            baseLocalPosition = newBaseLocalPosition;
+            hasBaseLocalPosition = true;
+            ApplyYOffset();
+            lastPosition = transform.position;
+            hasUpdated = false;
+        }
+
+        private void CaptureBaseLocalPosition()
+        {
+            if (hasBaseLocalPosition)
+            {
+                return;
+            }
+
+            baseLocalPosition = transform.localPosition;
+            hasBaseLocalPosition = true;
+        }
+
+        private void ApplyYOffset()
+        {
+            Vector3 pos = baseLocalPosition;
+            pos.y += yOffset;
+            transform.localPosition = pos;
         }
     }
 }

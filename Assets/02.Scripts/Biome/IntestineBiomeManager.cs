@@ -208,50 +208,104 @@ namespace Necrocis
             };
         }
 
-        protected override void SpawnObject(ObjectRule rule, int x, int y, Chunk chunk, ObjectId id)
+        protected override void SpawnChunkRecord(ChunkSpawnRecord record, Chunk chunk)
         {
-            switch (rule.kind)
+            int x = record.x;
+            int y = record.y;
+            ObjectId id = new ObjectId(x, y, record.objectKind);
+
+            if (record.category == ChunkSpawnCategory.Portal)
+            {
+                SpawnReturnPortal(record, chunk);
+                return;
+            }
+
+            switch (record.objectKind)
             {
                 case BiomeObjectKind.FloorDecoration:
-                    PlaceSlimePuddle(x, y, chunk, id, rule.blocksMovement);
+                    PlaceSlimePuddle(record, chunk, id);
                     break;
                 case BiomeObjectKind.SmallDecoration:
-                    PlaceSmallDecoration(x, y, moldPlant, "MoldPlant", chunk, id, rule.blocksMovement);
+                    PlaceSmallDecoration(record, moldPlant, "MoldPlant", chunk, id);
                     break;
                 case BiomeObjectKind.LargeObstacle:
-                    if (rule.configIndex == 0)
+                    if (record.configIndex == 0)
                     {
-                        PlaceLargeObstacle(x, y, moldTree, "MoldTree", moldTreeColliderSize, moldTreeColliderCenter, chunk, id, rule.blocksMovement);
+                        PlaceLargeObstacle(record, moldTree, "MoldTree", moldTreeColliderSize, moldTreeColliderCenter, chunk, id);
                     }
                     else
                     {
-                        PlaceLargeObstacle(x, y, rock, "Rock", rockColliderSize, rockColliderCenter, chunk, id, rule.blocksMovement);
+                        PlaceLargeObstacle(record, rock, "Rock", rockColliderSize, rockColliderCenter, chunk, id);
                     }
                     break;
                 case BiomeObjectKind.AnimatedDecoration:
-                    PlaceParasite(x, y, chunk, id, rule.blocksMovement);
+                    PlaceParasite(record, chunk, id);
                     break;
                 case BiomeObjectKind.Item:
-                    PlaceItem(x, y, chunk, id, rule.blocksMovement);
+                    PlaceItem(record, chunk, id);
                     break;
             }
         }
 
-        protected override void OnAfterObjectsGenerated(Chunk chunk)
+        protected override void AddExtraChunkSpawnRecords(Chunk chunk)
         {
-            TryPlaceReturnPortal(chunk);
+            Vector2Int portalGrid = WorldToGrid(GetReturnPortalPosition());
+            Vector2Int portalChunk = GridToChunk(portalGrid.x, portalGrid.y);
+
+            if (portalChunk.x != chunk.chunkX || portalChunk.y != chunk.chunkY)
+            {
+                return;
+            }
+
+            AddChunkSpawnRecord(chunk, new ChunkSpawnRecord(
+                ChunkSpawnCategory.Portal,
+                BiomeObjectKind.Portal,
+                0,
+                portalGrid.x,
+                portalGrid.y,
+                false));
         }
 
-        private GameObject AcquireObject(BiomeObjectKind kind, string name)
+        private GameObject AcquireObject(ObjectPoolKey poolKey, string name)
         {
-            GameObject obj = GetPooledObject(kind, () => new GameObject(name));
+            GameObject obj = GetPooledObject(poolKey, () => new GameObject(name));
             obj.name = name;
             obj.transform.SetParent(objectsParent, false);
             obj.transform.localPosition = Vector3.zero;
             obj.transform.localRotation = Quaternion.identity;
             obj.transform.localScale = Vector3.one;
-            obj.SetActive(true);
+            obj.SetActive(false);
             return obj;
+        }
+
+        private static void ActivateSpawnedObject(GameObject obj)
+        {
+            if (obj != null && !obj.activeSelf)
+            {
+                obj.SetActive(true);
+            }
+        }
+
+        private static void RefreshStaticVisuals(GameObject obj, int sortingOrder)
+        {
+            if (obj == null)
+            {
+                return;
+            }
+
+            Billboard billboard = obj.GetComponent<Billboard>();
+            if (billboard != null && billboard.enabled)
+            {
+                billboard.ResetBaseLocalPosition(obj.transform.localPosition);
+                billboard.SetUpdateMode(Billboard.UpdateMode.Continuous);
+            }
+
+            SpriteYSort sorter = obj.GetComponent<SpriteYSort>();
+            if (sorter != null && sorter.enabled)
+            {
+                sorter.Configure(SpriteYSort.WorldDynamicBaseSortingOrder, true, SpriteYSort.WorldDynamicMinSortingOrder);
+                sorter.SetUpdateMode(SpriteYSort.UpdateMode.Once);
+            }
         }
 
         private static T GetOrAddComponent<T>(GameObject obj) where T : Component
@@ -264,20 +318,21 @@ namespace Necrocis
             return component;
         }
 
-        private void PlaceSlimePuddle(int x, int y, Chunk chunk, ObjectId id, bool blocksMovement)
+        private void PlaceSlimePuddle(ChunkSpawnRecord record, Chunk chunk, ObjectId id)
         {
-            bool large = BiomeDeterministic.Hash01(seed, x, y, SlimePuddleSalt) > 0.5f;
+            bool large = BiomeDeterministic.Hash01(seed, record.x, record.y, SlimePuddleSalt) > 0.5f;
             Sprite sprite = large ? slimePuddleLarge : slimePuddleSmall;
             if (sprite == null) return;
 
-            PlaceFloorDecoration(x, y, sprite, "SlimePuddle", chunk, id, blocksMovement);
+            PlaceFloorDecoration(record, sprite, "SlimePuddle", chunk, id);
         }
 
-        private void PlaceFloorDecoration(int x, int y, Sprite sprite, string name, Chunk chunk, ObjectId id, bool blocksMovement)
+        private void PlaceFloorDecoration(ChunkSpawnRecord record, Sprite sprite, string name, Chunk chunk, ObjectId id)
         {
-            Vector3 worldPos = GridToWorldWithHeight(x, y, 0.01f);
+            Vector3 worldPos = GridToWorldWithHeight(record.x, record.y, 0.01f);
+            ObjectPoolKey poolKey = GetPoolKey(record);
 
-            GameObject obj = AcquireObject(id.type, $"{name}_{x}_{y}");
+            GameObject obj = AcquireObject(poolKey, $"{name}_{record.x}_{record.y}");
             obj.transform.position = worldPos;
 
             SpriteRenderer sr = GetOrAddComponent<SpriteRenderer>(obj);
@@ -285,16 +340,19 @@ namespace Necrocis
             sr.sortingOrder = GroundDecorationOrder;
             GetOrAddComponent<Billboard>(obj);
 
-            RegisterObject(chunk, obj, id, blocksMovement);
+            RegisterObject(chunk, obj, id, poolKey, record.blocksMovement);
+            RefreshStaticVisuals(obj, GroundDecorationOrder);
+            ActivateSpawnedObject(obj);
         }
 
-        private void PlaceSmallDecoration(int x, int y, Sprite sprite, string name, Chunk chunk, ObjectId id, bool blocksMovement)
+        private void PlaceSmallDecoration(ChunkSpawnRecord record, Sprite sprite, string name, Chunk chunk, ObjectId id)
         {
             if (sprite == null) return;
 
-            Vector3 worldPos = GridToWorldWithHeight(x, y);
+            Vector3 worldPos = GridToWorldWithHeight(record.x, record.y);
+            ObjectPoolKey poolKey = GetPoolKey(record);
 
-            GameObject obj = AcquireObject(id.type, $"{name}_{x}_{y}");
+            GameObject obj = AcquireObject(poolKey, $"{name}_{record.x}_{record.y}");
             obj.transform.position = worldPos;
 
             SpriteRenderer sr = GetOrAddComponent<SpriteRenderer>(obj);
@@ -302,16 +360,19 @@ namespace Necrocis
             sr.sortingOrder = GroundDecorationOrder;
             GetOrAddComponent<Billboard>(obj);
 
-            RegisterObject(chunk, obj, id, blocksMovement);
+            RegisterObject(chunk, obj, id, poolKey, record.blocksMovement);
+            RefreshStaticVisuals(obj, GroundDecorationOrder);
+            ActivateSpawnedObject(obj);
         }
 
-        private void PlaceLargeObstacle(int x, int y, Sprite sprite, string name, Vector3 colliderSize, Vector3 colliderCenter, Chunk chunk, ObjectId id, bool blocksMovement)
+        private void PlaceLargeObstacle(ChunkSpawnRecord record, Sprite sprite, string name, Vector3 colliderSize, Vector3 colliderCenter, Chunk chunk, ObjectId id)
         {
             if (sprite == null) return;
 
-            Vector3 worldPos = GridToWorldWithHeight(x, y);
+            Vector3 worldPos = GridToWorldWithHeight(record.x, record.y);
+            ObjectPoolKey poolKey = GetPoolKey(record);
 
-            GameObject obj = AcquireObject(id.type, $"{name}_{x}_{y}");
+            GameObject obj = AcquireObject(poolKey, $"{name}_{record.x}_{record.y}");
             obj.transform.position = worldPos;
 
             SpriteRenderer sr = GetOrAddComponent<SpriteRenderer>(obj);
@@ -323,16 +384,19 @@ namespace Necrocis
             col.size = colliderSize;
             col.center = colliderCenter;
 
-            RegisterObject(chunk, obj, id, blocksMovement);
+            RegisterObject(chunk, obj, id, poolKey, record.blocksMovement);
+            RefreshStaticVisuals(obj, GroundDecorationOrder);
+            ActivateSpawnedObject(obj);
         }
 
-        private void PlaceParasite(int x, int y, Chunk chunk, ObjectId id, bool blocksMovement)
+        private void PlaceParasite(ChunkSpawnRecord record, Chunk chunk, ObjectId id)
         {
             if (parasiteFrames == null || parasiteFrames.Length == 0) return;
 
-            Vector3 worldPos = GridToWorldWithHeight(x, y);
+            Vector3 worldPos = GridToWorldWithHeight(record.x, record.y);
+            ObjectPoolKey poolKey = GetPoolKey(record);
 
-            GameObject obj = AcquireObject(id.type, $"Parasite_{x}_{y}");
+            GameObject obj = AcquireObject(poolKey, $"Parasite_{record.x}_{record.y}");
             obj.transform.position = worldPos;
 
             SpriteRenderer sr = GetOrAddComponent<SpriteRenderer>(obj);
@@ -343,17 +407,20 @@ namespace Necrocis
             AnimatedSprite anim = GetOrAddComponent<AnimatedSprite>(obj);
             anim.SetFrames(parasiteFrames, parasiteAnimSpeed);
 
-            RegisterObject(chunk, obj, id, blocksMovement);
+            RegisterObject(chunk, obj, id, poolKey, record.blocksMovement);
+            RefreshStaticVisuals(obj, GroundDecorationOrder);
+            ActivateSpawnedObject(obj);
         }
 
-        private void PlaceItem(int x, int y, Chunk chunk, ObjectId id, bool blocksMovement)
+        private void PlaceItem(ChunkSpawnRecord record, Chunk chunk, ObjectId id)
         {
-            Sprite itemSprite = GetDeterministicSprite(itemSprites, x, y, ItemSalt);
+            Sprite itemSprite = GetDeterministicSprite(itemSprites, record.x, record.y, ItemSalt);
             if (itemSprite == null) return;
 
-            Vector3 worldPos = GridToWorldWithHeight(x, y);
+            Vector3 worldPos = GridToWorldWithHeight(record.x, record.y);
+            ObjectPoolKey poolKey = GetPoolKey(record);
 
-            GameObject obj = AcquireObject(id.type, $"Item_{x}_{y}");
+            GameObject obj = AcquireObject(poolKey, $"Item_{record.x}_{record.y}");
             obj.transform.position = worldPos;
 
             SpriteRenderer sr = GetOrAddComponent<SpriteRenderer>(obj);
@@ -365,22 +432,17 @@ namespace Necrocis
             col.isTrigger = true;
             col.size = new Vector3(1f, 1f, 1f);
 
-            RegisterObject(chunk, obj, id, blocksMovement);
+            RegisterObject(chunk, obj, id, poolKey, record.blocksMovement);
+            RefreshStaticVisuals(obj, GroundDecorationOrder);
+            ActivateSpawnedObject(obj);
         }
 
-        private void TryPlaceReturnPortal(Chunk chunk)
+        private void SpawnReturnPortal(ChunkSpawnRecord record, Chunk chunk)
         {
             Vector3 portalPos = GetReturnPortalPosition();
-            Vector2Int portalGrid = WorldToGrid(portalPos);
-            Vector2Int portalChunk = GridToChunk(portalGrid.x, portalGrid.y);
-
-            if (portalChunk.x != chunk.chunkX || portalChunk.y != chunk.chunkY)
-            {
-                return;
-            }
-
-            ObjectId id = new ObjectId(portalGrid.x, portalGrid.y, BiomeObjectKind.Portal);
-            GameObject portalObj = AcquireObject(id.type, "ReturnPortal");
+            ObjectId id = new ObjectId(record.x, record.y, record.objectKind);
+            ObjectPoolKey poolKey = GetPoolKey(record);
+            GameObject portalObj = AcquireObject(poolKey, "ReturnPortal");
             portalObj.transform.position = portalPos;
 
             SpriteRenderer sr = GetOrAddComponent<SpriteRenderer>(portalObj);
@@ -397,7 +459,9 @@ namespace Necrocis
 
             GetOrAddComponent<ReturnPortal>(portalObj);
 
-            RegisterObject(chunk, portalObj, id, false);
+            RegisterObject(chunk, portalObj, id, poolKey, false);
+            RefreshStaticVisuals(portalObj, 1000);
+            ActivateSpawnedObject(portalObj);
         }
 
         private Sprite GetDeterministicSprite(Sprite[] sprites, int x, int y, int salt)
@@ -415,6 +479,12 @@ namespace Necrocis
         public override Vector3 GetReturnPortalPosition()
         {
             return GridToWorldWithHeight(mapWidth / 2, 4);
+        }
+
+        private static ObjectPoolKey GetPoolKey(ChunkSpawnRecord record)
+        {
+            int archetypeId = record.category == ChunkSpawnCategory.Portal ? 0 : record.configIndex + 1;
+            return new ObjectPoolKey(record.objectKind, archetypeId);
         }
     }
 }

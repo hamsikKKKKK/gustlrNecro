@@ -42,6 +42,7 @@ namespace Necrocis
 
         protected struct ObjectRule
         {
+            public SpawnCategory category;
             public BiomeObjectKind kind;
             public float density;
             public float minDistance;
@@ -49,6 +50,12 @@ namespace Necrocis
             public int regionMask;
             public int salt;
             public int configIndex;
+        }
+
+        protected enum SpawnCategory
+        {
+            SceneObject = 0,
+            EnemySpawner = 1
         }
 
         private sealed class ChunkCache
@@ -89,7 +96,15 @@ namespace Necrocis
 
         protected override void GenerateObjectsForChunk(Chunk chunk)
         {
-            var enumerator = GenerateObjectsInternal(chunk);
+            if (!chunk.isSpawnManifestBuilt)
+            {
+                var manifestEnumerator = BuildChunkSpawnManifestInternal(chunk);
+                while (manifestEnumerator.MoveNext())
+                {
+                }
+            }
+
+            var enumerator = SpawnObjectsFromManifestInternal(chunk);
             while (enumerator.MoveNext())
             {
             }
@@ -97,7 +112,20 @@ namespace Necrocis
 
         protected override System.Collections.IEnumerator GenerateObjectsForChunkAsync(Chunk chunk)
         {
-            return GenerateObjectsInternal(chunk);
+            if (!chunk.isSpawnManifestBuilt)
+            {
+                System.Collections.IEnumerator manifestEnumerator = BuildChunkSpawnManifestInternal(chunk);
+                while (manifestEnumerator.MoveNext())
+                {
+                    yield return manifestEnumerator.Current;
+                }
+            }
+
+            System.Collections.IEnumerator spawnEnumerator = SpawnObjectsFromManifestInternal(chunk);
+            while (spawnEnumerator.MoveNext())
+            {
+                yield return spawnEnumerator.Current;
+            }
         }
 
         protected virtual bool IsObjectAreaAllowed(int x, int y)
@@ -105,9 +133,9 @@ namespace Necrocis
             return true;
         }
 
-        protected abstract void SpawnObject(ObjectRule rule, int x, int y, Chunk chunk, ObjectId id);
+        protected abstract void SpawnChunkRecord(ChunkSpawnRecord record, Chunk chunk);
 
-        protected virtual void OnAfterObjectsGenerated(Chunk chunk)
+        protected virtual void AddExtraChunkSpawnRecords(Chunk chunk)
         {
         }
 
@@ -127,8 +155,15 @@ namespace Necrocis
             return mask;
         }
 
-        private System.Collections.IEnumerator GenerateObjectsInternal(Chunk chunk)
+        protected void AddChunkSpawnRecord(Chunk chunk, ChunkSpawnRecord record)
         {
+            chunk.spawnManifest.Add(record);
+        }
+
+        private System.Collections.IEnumerator BuildChunkSpawnManifestInternal(Chunk chunk)
+        {
+            chunk.spawnManifest.Clear();
+
             int startX = chunk.chunkX * chunkSize;
             int startY = chunk.chunkY * chunkSize;
 
@@ -155,8 +190,13 @@ namespace Necrocis
                         if (!IsRegionAllowed(rule.regionMask, regionType)) continue;
                         if (!IsPoissonSelected(gx, gy, regionType, rule)) continue;
 
-                        ObjectId id = new ObjectId(gx, gy, rule.kind);
-                        SpawnObject(rule, gx, gy, chunk, id);
+                        chunk.spawnManifest.Add(new ChunkSpawnRecord(
+                            ToChunkSpawnCategory(rule.category),
+                            rule.kind,
+                            rule.configIndex,
+                            gx,
+                            gy,
+                            rule.blocksMovement));
                         occupied.Add(pos);
                         break;
                     }
@@ -170,7 +210,33 @@ namespace Necrocis
                 }
             }
 
-            OnAfterObjectsGenerated(chunk);
+            AddExtraChunkSpawnRecords(chunk);
+            chunk.isSpawnManifestBuilt = true;
+        }
+
+        private System.Collections.IEnumerator SpawnObjectsFromManifestInternal(Chunk chunk)
+        {
+            int processed = 0;
+            int budget = Mathf.Max(16, objectGenerationBudget);
+
+            for (int i = 0; i < chunk.spawnManifest.Count; i++)
+            {
+                SpawnChunkRecord(chunk.spawnManifest[i], chunk);
+
+                processed++;
+                if (processed >= budget)
+                {
+                    processed = 0;
+                    yield return null;
+                }
+            }
+        }
+
+        private static ChunkSpawnCategory ToChunkSpawnCategory(SpawnCategory category)
+        {
+            return category == SpawnCategory.EnemySpawner
+                ? ChunkSpawnCategory.EnemySpawner
+                : ChunkSpawnCategory.SceneObject;
         }
 
         private ChunkCache GetOrCreateChunkCache(Vector2Int chunkPos)

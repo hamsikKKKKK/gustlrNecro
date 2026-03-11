@@ -7,6 +7,9 @@ namespace Necrocis
     /// </summary>
     public class SpriteYSort : MonoBehaviour
     {
+        public const int WorldDynamicBaseSortingOrder = 5000;
+        public const int WorldDynamicMinSortingOrder = 200;
+
         [Header("설정")]
         [SerializeField] private int baseSortingOrder = 1000;  // 타일맵보다 확실히 앞에
         [SerializeField] private float sortingMultiplier = 10f;
@@ -86,6 +89,15 @@ namespace Necrocis
         public void SetUpdateMode(UpdateMode mode)
         {
             updateMode = mode;
+            enabled = true;
+            hasUpdated = false;
+        }
+
+        public void Configure(int newBaseSortingOrder, bool enableMinClamp, int newMinSortingOrder)
+        {
+            baseSortingOrder = newBaseSortingOrder;
+            useMinSortingClamp = enableMinClamp;
+            minSortingOrder = newMinSortingOrder;
             enabled = true;
             hasUpdated = false;
         }

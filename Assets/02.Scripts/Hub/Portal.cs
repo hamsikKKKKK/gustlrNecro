@@ -208,17 +208,11 @@ namespace Necrocis
         }
 
 #if UNITY_EDITOR
-        private void OnDrawGizmos()
+        private void OnDrawGizmosSelected()
         {
             // 상호작용 범위 표시
             Gizmos.color = isActive ? Color.cyan : Color.gray;
             Gizmos.DrawWireSphere(transform.position, interactionRadius);
-
-            // 바이옴 타입 라벨
-            UnityEditor.Handles.Label(
-                transform.position + Vector3.up * 2f,
-                $"{targetBiome}"
-            );
         }
 #endif
     }

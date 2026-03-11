@@ -550,7 +550,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 6677856733d61344e832893e34b6b07b, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::Necrocis.PlayerController
-  moveSpeed: 5
+  moveSpeed: 10
   spriteRenderer: {fileID: 571540666}
   idleSprites:
   - {fileID: -71036734, guid: bb4e252c981424e4ebf934ceb3c5bbb1, type: 3}
@@ -588,6 +588,10 @@ MonoBehaviour:
   - {fileID: -1947842229, guid: 9ac754c8cf38eb24dac0f4381a100d3d, type: 3}
   idleFrameRate: 4
   walkFrameRate: 8
+  lockYPosition: 0
+  lockedY: -2
+  groundOffsetY: -2
+  useDynamicGroundHeight: 1
 --- !u!4 &1905923572
 Transform:
   m_ObjectHideFlags: 0

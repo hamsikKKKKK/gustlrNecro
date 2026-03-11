@@ -183,6 +183,88 @@ MonoBehaviour:
     isTrigger: 1
     colliderSize: {x: 1, y: 1, z: 1}
     colliderCenter: {x: 0, y: 0, z: 0}
+  enemySpawnRules:
+  - name: Macrophage
+    density: 0.05
+    minDistance: 6
+    poissonSalt: 501
+    allowedRegions: 
+    maxAlive: 2
+    activationRadius: 55
+    respawnCooldown: 5
+    spawnRadius: 2
+    moveSpeed: 1.35
+    stoppingDistance: 0.1
+    wanderRadius: 5.5
+    chaseRadius: 7
+    leashRadius: 9
+    idleDelayRange: {x: 0.8, y: 1.6}
+    separationDistance: 1.2
+    separationStrength: 1.1
+    heightOffset: 0
+    scale: {x: 1.1, y: 1.1, z: 1.1}
+    sortingOrder: 1000
+    useBillboard: 1
+    useYSort: 1
+    animationSpeed: 0.14
+    addCollider: 1
+    isTrigger: 0
+    colliderSize: {x: 0.75, y: 1.1, z: 0.75}
+    colliderCenter: {x: 0, y: 0.55, z: 0}
+    idleSprites:
+    - {fileID: -349537555, guid: adc4de7a1dc1b41329ebfb633fde8315, type: 3}
+    - {fileID: 1213750872, guid: adc4de7a1dc1b41329ebfb633fde8315, type: 3}
+    - {fileID: 489076886, guid: adc4de7a1dc1b41329ebfb633fde8315, type: 3}
+    - {fileID: 1105539151, guid: adc4de7a1dc1b41329ebfb633fde8315, type: 3}
+    - {fileID: 1433477000, guid: adc4de7a1dc1b41329ebfb633fde8315, type: 3}
+    - {fileID: 1362368345, guid: adc4de7a1dc1b41329ebfb633fde8315, type: 3}
+    - {fileID: -918759198, guid: adc4de7a1dc1b41329ebfb633fde8315, type: 3}
+    - {fileID: 795726787, guid: adc4de7a1dc1b41329ebfb633fde8315, type: 3}
+    moveSprites:
+    - {fileID: 253483888, guid: 89c54c019cb9844eabc6f4914db5745e, type: 3}
+    - {fileID: 907086512, guid: 89c54c019cb9844eabc6f4914db5745e, type: 3}
+    - {fileID: 1858638422, guid: 89c54c019cb9844eabc6f4914db5745e, type: 3}
+    - {fileID: 351413284, guid: 89c54c019cb9844eabc6f4914db5745e, type: 3}
+    - {fileID: 2115761868, guid: 89c54c019cb9844eabc6f4914db5745e, type: 3}
+    - {fileID: -836998611, guid: 89c54c019cb9844eabc6f4914db5745e, type: 3}
+    - {fileID: -518216197, guid: 89c54c019cb9844eabc6f4914db5745e, type: 3}
+    - {fileID: -1831142552, guid: 89c54c019cb9844eabc6f4914db5745e, type: 3}
+    - {fileID: 336531267, guid: 89c54c019cb9844eabc6f4914db5745e, type: 3}
+  - name: NKCell
+    density: 0.07
+    minDistance: 5
+    poissonSalt: 502
+    allowedRegions: 
+    maxAlive: 3
+    activationRadius: 58
+    respawnCooldown: 4
+    spawnRadius: 2.5
+    moveSpeed: 2.1
+    stoppingDistance: 0.1
+    wanderRadius: 6.5
+    chaseRadius: 8
+    leashRadius: 10
+    idleDelayRange: {x: 0.4, y: 1.1}
+    separationDistance: 1.05
+    separationStrength: 1.2
+    heightOffset: 0
+    scale: {x: 1, y: 1, z: 1}
+    sortingOrder: 1000
+    useBillboard: 1
+    useYSort: 1
+    animationSpeed: 0.12
+    addCollider: 1
+    isTrigger: 0
+    colliderSize: {x: 0.65, y: 0.95, z: 0.65}
+    colliderCenter: {x: 0, y: 0.48, z: 0}
+    idleSprites: []
+    moveSprites:
+    - {fileID: -485361558, guid: 83239bf2fdd6e4a11a28d3a7faf0449a, type: 3}
+    - {fileID: -1950830922, guid: 83239bf2fdd6e4a11a28d3a7faf0449a, type: 3}
+    - {fileID: 2102288475, guid: 83239bf2fdd6e4a11a28d3a7faf0449a, type: 3}
+    - {fileID: -150208534, guid: 83239bf2fdd6e4a11a28d3a7faf0449a, type: 3}
+    - {fileID: 732122569, guid: 83239bf2fdd6e4a11a28d3a7faf0449a, type: 3}
+    - {fileID: -274967060, guid: 83239bf2fdd6e4a11a28d3a7faf0449a, type: 3}
   returnPortal:
     enabled: 1
     name: ReturnPortal
