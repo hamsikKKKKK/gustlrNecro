@@ -4,7 +4,8 @@ using UnityEngine;
 namespace Necrocis
 {
     /// <summary>
-    /// 스포너 기준 반경 안에서 배회/추적/복귀하는 1차 적 AI.
+    /// FSM 기반 적 AI + 오브젝트 풀링.
+    /// 배회(Wander) / 추격(Chase) / 복귀(Return) / 공격(Attack) / 사망(Dead)
     /// </summary>
     public class EnemyController : MonoBehaviour
     {
@@ -15,8 +16,12 @@ namespace Necrocis
 
         private static Transform poolRoot;
 
+        // 소유자/설정
         private EnemySpawner owner;
         private EnemySpawnRuleConfig config;
+        private int poolArchetypeId;
+
+        // 컴포넌트
         private Transform playerTransform;
         private Transform visualRoot;
         private SpriteRenderer spriteRenderer;
@@ -25,13 +30,36 @@ namespace Necrocis
         private SpriteYSort ySort;
         private Rigidbody body;
         private BoxCollider boxCollider;
+
+        // 이동
         private Vector3 anchorPosition;
         private Vector3 destination;
-        private float idleTimer;
         private bool hasDestination;
+
+        // FSM
+        private IEnemyState currentState;
+
+        // 타이머
+        private float idleTimer;
+        private float attackTimer;
+
+        // 전투
+        private float currentHealth;
+
+        // 애니메이션
         private bool usingMoveAnimation;
         private bool notifiedOwner;
-        private int poolArchetypeId;
+
+        // ─────────────────────────────────
+        // 공개 프로퍼티 (FSM 상태에서 사용)
+        // ─────────────────────────────────
+
+        public bool IsDead => currentHealth <= 0f;
+        public EnemySpawnRuleConfig Config => config;
+
+        // ─────────────────────────────────
+        // 풀링 API (기존 유지)
+        // ─────────────────────────────────
 
         public static EnemyController Acquire(Transform parent, string name, int poolArchetypeId)
         {
@@ -41,10 +69,7 @@ namespace Necrocis
             while (pool.Count > 0)
             {
                 EnemyController pooled = pool.Pop();
-                if (pooled == null)
-                {
-                    continue;
-                }
+                if (pooled == null) continue;
 
                 GameObject pooledObject = pooled.gameObject;
                 pooledObject.name = name;
@@ -72,9 +97,11 @@ namespace Necrocis
             playerTransform = null;
             destination = spawnPosition;
             idleTimer = 0f;
+            attackTimer = 0f;
             hasDestination = false;
             usingMoveAnimation = false;
             notifiedOwner = false;
+            currentHealth = config != null ? config.maxHealth : 30f;
 
             transform.position = spawnPosition;
             transform.localRotation = Quaternion.identity;
@@ -85,23 +112,30 @@ namespace Necrocis
             ApplyVisualSetup();
             SetIdleAnimation();
             SyncHeight();
+
             if (!ActiveEnemies.Contains(this))
             {
                 ActiveEnemies.Add(this);
             }
+
             enabled = config != null;
             if (!gameObject.activeSelf)
             {
                 gameObject.SetActive(true);
             }
+
+            // FSM 시작 → Idle
+            currentState = null;
+            ChangeState(EnemyIdleState.Instance);
         }
 
         public void ReleaseToPool()
         {
-            if (gameObject == null || !gameObject.activeSelf)
-            {
-                return;
-            }
+            if (gameObject == null || !gameObject.activeSelf) return;
+
+            // FSM Exit
+            currentState?.Exit(this);
+            currentState = null;
 
             PrepareForPool();
             EnsurePoolRoot();
@@ -113,22 +147,26 @@ namespace Necrocis
             playerTransform = null;
             destination = Vector3.zero;
             idleTimer = 0f;
+            attackTimer = 0f;
             hasDestination = false;
             usingMoveAnimation = false;
 
             GetOrCreatePool(poolArchetypeId).Push(this);
         }
 
+        // ─────────────────────────────────
+        // Unity 라이프사이클
+        // ─────────────────────────────────
+
         private void Update()
         {
-            if (config == null)
-            {
-                return;
-            }
+            if (config == null) return;
 
             EnsurePlayerTransform();
-            bool moved = UpdateMovement(Time.deltaTime);
-            UpdateAnimation(moved);
+
+            // FSM Update
+            currentState?.Update(this, Time.deltaTime);
+
             SyncHeight();
         }
 
@@ -144,107 +182,95 @@ namespace Necrocis
             NotifyOwnerReleased();
         }
 
-        private bool UpdateMovement(float deltaTime)
+        // ─────────────────────────────────
+        // FSM 상태 전환
+        // ─────────────────────────────────
+
+        public void ChangeState(IEnemyState newState)
         {
+            if (newState == currentState) return;
+
+            currentState?.Exit(this);
+            currentState = newState;
+            currentState?.Enter(this);
+        }
+
+        // ─────────────────────────────────
+        // 조건 검사 (FSM 상태에서 호출)
+        // ─────────────────────────────────
+
+        public bool IsPlayerInChaseRange()
+        {
+            if (playerTransform == null) return false;
+
+            float distToPlayer = GetPlanarDistance(GetCurrentPosition(), playerTransform.position);
+            if (distToPlayer > config.chaseRadius) return false;
+
+            // leash 안에 있는 플레이어만 추격
+            float playerToAnchor = GetPlanarDistance(playerTransform.position, anchorPosition);
+            return playerToAnchor <= config.leashRadius;
+        }
+
+        public bool IsPlayerInAttackRange()
+        {
+            if (playerTransform == null) return false;
+            float dist = GetPlanarDistance(GetCurrentPosition(), playerTransform.position);
+            return dist <= config.attackRange;
+        }
+
+        public bool IsOutOfLeash()
+        {
+            return GetPlanarDistance(GetCurrentPosition(), anchorPosition) > config.leashRadius;
+        }
+
+        public bool IsIdleTimerExpired(float deltaTime)
+        {
+            idleTimer -= deltaTime;
+            return idleTimer <= 0f;
+        }
+
+        // ─────────────────────────────────
+        // 행동 (FSM 상태에서 호출)
+        // ─────────────────────────────────
+
+        public void ResetIdleTimer()
+        {
+            float min = Mathf.Min(config.idleDelayRange.x, config.idleDelayRange.y);
+            float max = Mathf.Max(config.idleDelayRange.x, config.idleDelayRange.y);
+            idleTimer = Random.Range(min, max);
+        }
+
+        public void PickWanderDestination()
+        {
+            if (TryPickWanderDestination(out Vector3 wanderDest))
+            {
+                SetDestination(wanderDest);
+            }
+        }
+
+        public void SetChaseDestination()
+        {
+            if (playerTransform == null) return;
+            Vector3 chase = playerTransform.position;
+            chase.y = GetCurrentPosition().y;
+            SetDestination(chase);
+        }
+
+        public void SetReturnDestination()
+        {
+            SetDestination(anchorPosition);
+        }
+
+        /// <summary>
+        /// 목적지로 이동. 도착하면 false 반환.
+        /// </summary>
+        public bool MoveTowardDestination(float deltaTime)
+        {
+            if (!hasDestination) return false;
+
             Vector3 currentPosition = GetCurrentPosition();
             Vector3 separation = GetSeparationVector(currentPosition);
 
-            if (GetPlanarDistance(currentPosition, anchorPosition) > config.leashRadius)
-            {
-                SetDestination(anchorPosition);
-                return MoveTowardDestination(deltaTime, separation);
-            }
-
-            if (TryGetChaseDestination(out Vector3 chaseDestination))
-            {
-                SetDestination(chaseDestination);
-                return MoveTowardDestination(deltaTime, separation);
-            }
-
-            if (hasDestination)
-            {
-                return MoveTowardDestination(deltaTime, separation);
-            }
-
-            if (separation.sqrMagnitude > 0.0001f)
-            {
-                Vector3 step = separation.normalized * config.moveSpeed * 0.5f * deltaTime;
-                return TryMove(currentPosition, step);
-            }
-
-            if (idleTimer > 0f)
-            {
-                idleTimer -= deltaTime;
-                return false;
-            }
-
-            if (!TryPickWanderDestination(out Vector3 wanderDestination))
-            {
-                idleTimer = GetRandomIdleDelay();
-                return false;
-            }
-
-            SetDestination(wanderDestination);
-            return MoveTowardDestination(deltaTime, separation);
-        }
-
-        private bool TryGetChaseDestination(out Vector3 chaseDestination)
-        {
-            chaseDestination = Vector3.zero;
-            if (playerTransform == null)
-            {
-                return false;
-            }
-
-            float distanceToPlayer = GetPlanarDistance(GetCurrentPosition(), playerTransform.position);
-            if (distanceToPlayer > config.chaseRadius)
-            {
-                return false;
-            }
-
-            float playerToAnchor = GetPlanarDistance(playerTransform.position, anchorPosition);
-            if (playerToAnchor > config.leashRadius)
-            {
-                return false;
-            }
-
-            chaseDestination = playerTransform.position;
-            chaseDestination.y = GetCurrentPosition().y;
-            return true;
-        }
-
-        private bool TryPickWanderDestination(out Vector3 wanderDestination)
-        {
-            BiomeManager biome = BiomeManager.Active;
-            if (biome == null)
-            {
-                wanderDestination = anchorPosition;
-                return true;
-            }
-
-            for (int i = 0; i < 8; i++)
-            {
-                Vector2 offset = Random.insideUnitCircle * Mathf.Max(0f, config.wanderRadius);
-                Vector3 candidate = anchorPosition + new Vector3(offset.x, 0f, offset.y);
-                Vector2Int grid = biome.WorldToGrid(candidate);
-                if (!biome.IsValidPosition(grid.x, grid.y) || !biome.IsWalkable(grid.x, grid.y))
-                {
-                    continue;
-                }
-
-                candidate.y = biome.GetGroundHeight(candidate) + config.heightOffset;
-                wanderDestination = candidate;
-                return true;
-            }
-
-            wanderDestination = anchorPosition;
-            wanderDestination.y = biome.GetGroundHeight(anchorPosition) + config.heightOffset;
-            return true;
-        }
-
-        private bool MoveTowardDestination(float deltaTime, Vector3 separation)
-        {
-            Vector3 currentPosition = GetCurrentPosition();
             Vector3 flatCurrent = new Vector3(currentPosition.x, 0f, currentPosition.z);
             Vector3 flatDestination = new Vector3(destination.x, 0f, destination.z);
             Vector3 toDestination = flatDestination - flatCurrent;
@@ -253,8 +279,7 @@ namespace Necrocis
             if (distance <= Mathf.Max(0.01f, config.stoppingDistance))
             {
                 hasDestination = false;
-                idleTimer = GetRandomIdleDelay();
-                return false;
+                return false; // 도착
             }
 
             Vector3 moveDirection = toDestination.normalized;
@@ -277,7 +302,6 @@ namespace Necrocis
             if (!moved)
             {
                 hasDestination = false;
-                idleTimer = GetRandomIdleDelay();
                 return false;
             }
 
@@ -286,6 +310,93 @@ namespace Necrocis
                 spriteRenderer.flipX = step.x < 0f;
             }
 
+            // 이동 애니메이션 전환
+            if (!usingMoveAnimation)
+            {
+                SetMoveAnimation();
+            }
+
+            return true; // 아직 이동 중
+        }
+
+        public void TryPerformAttack(float deltaTime)
+        {
+            attackTimer -= deltaTime;
+            if (attackTimer > 0f) return;
+
+            attackTimer = config.attackCooldown;
+
+            // TODO: 플레이어 데미지 시스템 연동
+            // PlayerController.Instance?.TakeDamage(config.attackDamage);
+            Debug.Log($"[{gameObject.name}] 공격! {config.attackDamage} 데미지");
+        }
+
+        public void TakeDamage(float damage)
+        {
+            if (IsDead) return;
+            currentHealth -= damage;
+            if (currentHealth <= 0f)
+            {
+                currentHealth = 0f;
+                ChangeState(EnemyDeadState.Instance);
+            }
+        }
+
+        public void DisableCollider()
+        {
+            if (boxCollider != null) boxCollider.enabled = false;
+        }
+
+        // ─────────────────────────────────
+        // 애니메이션
+        // ─────────────────────────────────
+
+        public void SetIdleAnimation()
+        {
+            usingMoveAnimation = false;
+            ApplyAnimation(GetIdleFrames());
+        }
+
+        public void SetMoveAnimation()
+        {
+            usingMoveAnimation = true;
+            ApplyAnimation(config.moveSprites);
+        }
+
+        // ─────────────────────────────────
+        // 내부 메서드 (기존 로직 유지)
+        // ─────────────────────────────────
+
+        private void SetDestination(Vector3 targetPosition)
+        {
+            destination = targetPosition;
+            hasDestination = true;
+        }
+
+        private bool TryPickWanderDestination(out Vector3 wanderDestination)
+        {
+            BiomeManager biome = BiomeManager.Active;
+            if (biome == null)
+            {
+                wanderDestination = anchorPosition;
+                return true;
+            }
+
+            for (int i = 0; i < 8; i++)
+            {
+                Vector2 offset = Random.insideUnitCircle * Mathf.Max(0f, config.wanderRadius);
+                Vector3 candidate = anchorPosition + new Vector3(offset.x, 0f, offset.y);
+                Vector2Int grid = biome.WorldToGrid(candidate);
+                if (!biome.IsValidPosition(grid.x, grid.y) || !biome.IsWalkable(grid.x, grid.y))
+                    continue;
+
+                candidate.y = biome.GetGroundHeight(candidate) + config.heightOffset;
+                wanderDestination = candidate;
+                return true;
+            }
+
+            wanderDestination = anchorPosition;
+            wanderDestination.y = biome.GetGroundHeight(anchorPosition) + config.heightOffset;
             return true;
         }
 
@@ -315,7 +426,6 @@ namespace Necrocis
                     MoveToPosition(currentPosition + moveX);
                     return true;
                 }
-
                 if (moveZ.sqrMagnitude > 0f && biome.CanMove(currentPosition, currentPosition + moveZ))
                 {
                     MoveToPosition(currentPosition + moveZ);
@@ -329,7 +439,6 @@ namespace Necrocis
                     MoveToPosition(currentPosition + moveZ);
                     return true;
                 }
-
                 if (moveX.sqrMagnitude > 0f && biome.CanMove(currentPosition, currentPosition + moveX))
                 {
                     MoveToPosition(currentPosition + moveX);
@@ -343,9 +452,7 @@ namespace Necrocis
         private Vector3 GetSeparationVector(Vector3 currentPosition)
         {
             if (config == null || config.separationDistance <= 0f)
-            {
                 return Vector3.zero;
-            }
 
             float maxDistanceSq = config.separationDistance * config.separationDistance;
             Vector3 separation = Vector3.zero;
@@ -353,18 +460,12 @@ namespace Necrocis
             for (int i = 0; i < ActiveEnemies.Count; i++)
             {
                 EnemyController other = ActiveEnemies[i];
-                if (other == null || other == this || other.config == null)
-                {
-                    continue;
-                }
+                if (other == null || other == this || other.config == null) continue;
 
                 Vector3 delta = currentPosition - other.GetCurrentPosition();
                 delta.y = 0f;
                 float distanceSq = delta.sqrMagnitude;
-                if (distanceSq <= 0.0001f || distanceSq > maxDistanceSq)
-                {
-                    continue;
-                }
+                if (distanceSq <= 0.0001f || distanceSq > maxDistanceSq) continue;
 
                 float distance = Mathf.Sqrt(distanceSq);
                 float weight = 1f - (distance / config.separationDistance);
@@ -374,47 +475,9 @@ namespace Necrocis
             return separation;
         }
 
-        private void UpdateAnimation(bool moved)
-        {
-            if (moved)
-            {
-                if (!usingMoveAnimation)
-                {
-                    SetMoveAnimation();
-                }
-                return;
-            }
-
-            if (usingMoveAnimation)
-            {
-                SetIdleAnimation();
-            }
-        }
-
-        private void SetDestination(Vector3 targetPosition)
-        {
-            destination = targetPosition;
-            hasDestination = true;
-        }
-
-        private void SetIdleAnimation()
-        {
-            usingMoveAnimation = false;
-            ApplyAnimation(GetIdleFrames());
-        }
-
-        private void SetMoveAnimation()
-        {
-            usingMoveAnimation = true;
-            ApplyAnimation(config.moveSprites);
-        }
-
         private void ApplyAnimation(Sprite[] frames)
         {
-            if (spriteRenderer == null)
-            {
-                return;
-            }
+            if (spriteRenderer == null) return;
 
             if (frames == null || frames.Length == 0)
             {
@@ -439,25 +502,15 @@ namespace Necrocis
         private Sprite[] GetIdleFrames()
         {
             if (config.idleSprites != null && config.idleSprites.Length > 0)
-            {
                 return config.idleSprites;
-            }
-
             return config.moveSprites;
         }
 
         private void SyncHeight()
         {
-            if (config == null)
-            {
-                return;
-            }
-
+            if (config == null) return;
             BiomeManager biome = BiomeManager.Active;
-            if (biome == null)
-            {
-                return;
-            }
+            if (biome == null) return;
 
             Vector3 position = GetCurrentPosition();
             position.y = biome.GetGroundHeight(position) + config.heightOffset;
@@ -466,15 +519,9 @@ namespace Necrocis
 
         private void EnsurePlayerTransform()
         {
-            if (playerTransform != null)
-            {
-                return;
-            }
-
+            if (playerTransform != null) return;
             if (PlayerController.Instance != null)
-            {
                 playerTransform = PlayerController.Instance.transform;
-            }
         }
 
         private void EnsureComponents()
@@ -548,7 +595,6 @@ namespace Necrocis
                 body.position = position;
                 return;
             }
-
             transform.position = position;
         }
 
@@ -559,7 +605,6 @@ namespace Necrocis
                 body.position = position;
                 return;
             }
-
             transform.position = position;
         }
 
@@ -567,35 +612,15 @@ namespace Necrocis
         {
             T component = target.GetComponent<T>();
             if (component == null)
-            {
                 component = target.AddComponent<T>();
-            }
             return component;
-        }
-
-        private float GetRandomIdleDelay()
-        {
-            float min = Mathf.Min(config.idleDelayRange.x, config.idleDelayRange.y);
-            float max = Mathf.Max(config.idleDelayRange.x, config.idleDelayRange.y);
-            return Random.Range(min, max);
         }
 
         private void NotifyOwnerReleased()
         {
-            if (notifiedOwner || owner == null)
-            {
-                return;
-            }
-
+            if (notifiedOwner || owner == null) return;
             owner.NotifyEnemyReleased(this);
             notifiedOwner = true;
-        }
-
-        private static float GetPlanarDistance(Vector3 a, Vector3 b)
-        {
-            a.y = 0f;
-            b.y = 0f;
-            return Vector3.Distance(a, b);
         }
 
         private void PrepareForPool()
@@ -607,43 +632,38 @@ namespace Necrocis
             }
 
             if (spriteRenderer != null)
-            {
                 spriteRenderer.flipX = false;
-            }
 
             if (body != null)
             {
                 if (!body.isKinematic)
-                {
                     body.angularVelocity = Vector3.zero;
-                }
                 body.rotation = Quaternion.identity;
             }
+
+            // 콜라이더 복원
+            if (boxCollider != null && config != null)
+                boxCollider.enabled = config.addCollider;
+        }
+
+        private static float GetPlanarDistance(Vector3 a, Vector3 b)
+        {
+            a.y = 0f;
+            b.y = 0f;
+            return Vector3.Distance(a, b);
         }
 
         private static void EnsurePoolRoot()
         {
-            if (poolRoot != null)
-            {
-                return;
-            }
-
+            if (poolRoot != null) return;
             GameObject root = GameObject.Find(PoolRootName);
-            if (root == null)
-            {
-                root = new GameObject(PoolRootName);
-            }
-
+            if (root == null) root = new GameObject(PoolRootName);
             poolRoot = root.transform;
         }
 
         public static int GetPoolArchetypeId(EnemySpawnRuleConfig config)
         {
-            if (config == null)
-            {
-                return 0;
-            }
-
+            if (config == null) return 0;
             return unchecked((config.poissonSalt * 397) ^ Animator.StringToHash(config.name ?? "Enemy"));
         }
 
@@ -654,7 +674,6 @@ namespace Necrocis
                 pool = new Stack<EnemyController>();
                 PooledEnemies.Add(poolArchetypeId, pool);
             }
-
             return pool;
         }
     }

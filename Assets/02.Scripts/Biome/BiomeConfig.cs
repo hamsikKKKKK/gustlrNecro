@@ -162,6 +162,12 @@ namespace Necrocis
         public float leashRadius = 8f;
         public Vector2 idleDelayRange = new Vector2(0.5f, 1.5f);
 
+        [Header("Combat")]
+        public float maxHealth = 30f;
+        public float attackDamage = 10f;
+        public float attackRange = 1.5f;
+        public float attackCooldown = 1f;
+
         [Header("Separation")]
         public float separationDistance = 1.1f;
         public float separationStrength = 1f;
