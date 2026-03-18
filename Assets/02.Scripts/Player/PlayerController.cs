@@ -1,5 +1,7 @@
+using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.InputSystem;
+using UnityEngine.Serialization;
 
 namespace Necrocis
 {
@@ -11,8 +13,11 @@ namespace Necrocis
         public static PlayerController Instance { get; private set; }
         private static readonly Quaternion FixedPlayerRotation = Quaternion.identity;
 
-        [Header("이동")]
-        [SerializeField] private float moveSpeed = 5f;
+        [Header("기본 스탯")]
+        [FormerlySerializedAs("moveSpeed")]
+        [SerializeField] private float baseMoveSpeed = 5f;
+        [SerializeField] private float baseMaxHealth = 100f;
+        [SerializeField] private float baseAttackPower = 10f;
 
         [Header("스프라이트 렌더러")]
         [SerializeField] private SpriteRenderer spriteRenderer;
@@ -51,6 +56,20 @@ namespace Necrocis
         private Vector3 movement;
         private Rigidbody rb;
         private CharacterController characterController;
+        private PlayerStats playerStats;
+        private PlayerAttackModule playerAttackModule;
+        private bool playerStatsConfigured;
+        private bool playerStatsEventsBound;
+        private bool deathHandled;
+
+        public PlayerStats Stats => playerStats;
+        public PlayerAttackModule AttackModule => playerAttackModule;
+        public CharacterStats RuntimeStats => playerStats != null ? playerStats.RuntimeStats : null;
+        public float MoveSpeed => playerStats != null ? playerStats.MoveSpeed : 0f;
+        public float CurrentHealth => playerStats != null ? playerStats.CurrentHealth : 0f;
+        public float MaxHealth => playerStats != null ? playerStats.MaxHealth : 0f;
+        public float AttackPower => playerStats != null ? playerStats.AttackPower : 0f;
+        public bool IsDead => playerStats != null && playerStats.IsDead;
 
         private void Awake()
         {
@@ -97,6 +116,8 @@ namespace Necrocis
             // 물리 컴포넌트 확인
             rb = GetComponent<Rigidbody>();
             characterController = GetComponent<CharacterController>();
+            EnsurePlayerStats();
+            EnsureAttackModule();
             ApplyLockedRotation();
         }
 
@@ -144,6 +165,13 @@ namespace Necrocis
                 return;
             }
 
+            if (deathHandled)
+            {
+                movement = Vector3.zero;
+                isMoving = false;
+                return;
+            }
+
             // 새 Input System 사용
             float horizontal = 0f;
             float vertical = 0f;
@@ -151,11 +179,11 @@ namespace Necrocis
             var keyboard = Keyboard.current;
             if (keyboard != null)
             {
-                // 각 키를 명시적으로 체크 (wasUpdatedThisFrame으로 실제 입력인지 확인)
-                bool left = keyboard.aKey.isPressed || keyboard.leftArrowKey.isPressed;
-                bool right = keyboard.dKey.isPressed || keyboard.rightArrowKey.isPressed;
-                bool down = keyboard.sKey.isPressed || keyboard.downArrowKey.isPressed;
-                bool up = keyboard.wKey.isPressed || keyboard.upArrowKey.isPressed;
+                // 방향키는 공격용으로 분리하고 이동은 WASD만 사용
+                bool left = keyboard.aKey.isPressed;
+                bool right = keyboard.dKey.isPressed;
+                bool down = keyboard.sKey.isPressed;
+                bool up = keyboard.wKey.isPressed;
 
                 if (left && !right) horizontal = -1f;
                 else if (right && !left) horizontal = 1f;
@@ -293,7 +321,7 @@ namespace Necrocis
                 return;
             }
 
-            Vector3 moveVector = movement * moveSpeed * Time.fixedDeltaTime;
+            Vector3 moveVector = movement * MoveSpeed * Time.fixedDeltaTime;
             bool moved = TryMoveWithHeight(moveVector);
 
             if (!moved && rb != null)
@@ -455,6 +483,138 @@ namespace Necrocis
         public Direction GetCurrentDirection()
         {
             return currentDirection;
+        }
+
+        public void RefreshBaseStats(bool resetCurrentHealth = false)
+        {
+            EnsurePlayerStats();
+            playerStats.ConfigureBaseStats(baseMoveSpeed, baseMaxHealth, baseAttackPower, resetCurrentHealth);
+            playerStatsConfigured = true;
+        }
+
+        public void TakeDamage(float damage)
+        {
+            if (deathHandled)
+            {
+                return;
+            }
+
+            EnsurePlayerStats();
+            playerStats.TakeDamage(damage);
+        }
+
+        public void Heal(float amount)
+        {
+            EnsurePlayerStats();
+            playerStats.Heal(amount);
+        }
+
+        public void AddStatModifier(CharacterStatModifier modifier)
+        {
+            EnsurePlayerStats();
+            playerStats.ApplyModifier(modifier);
+        }
+
+        public void AddStatModifiers(IEnumerable<CharacterStatModifierData> modifiers, object source)
+        {
+            EnsurePlayerStats();
+            playerStats.ApplyModifiers(modifiers, source);
+        }
+
+        public void ApplyOrReplaceStatModifiers(IEnumerable<CharacterStatModifierData> modifiers, object source)
+        {
+            EnsurePlayerStats();
+            playerStats.ApplyOrReplaceSourceModifiers(modifiers, source);
+        }
+
+        public int RemoveStatModifiersFromSource(object source)
+        {
+            EnsurePlayerStats();
+            return playerStats.RemoveModifiersFromSource(source);
+        }
+
+        public void FaceDirection(Direction direction)
+        {
+            currentDirection = direction;
+            UpdateAnimationState();
+        }
+
+        private void EnsurePlayerStats()
+        {
+            if (playerStats == null)
+            {
+                playerStats = GetComponent<PlayerStats>();
+                if (playerStats == null)
+                {
+                    playerStats = gameObject.AddComponent<PlayerStats>();
+                }
+            }
+
+            if (!playerStatsConfigured)
+            {
+                playerStats.ConfigureBaseStats(baseMoveSpeed, baseMaxHealth, baseAttackPower, true);
+                playerStatsConfigured = true;
+            }
+
+            if (!playerStatsEventsBound)
+            {
+                playerStats.HealthChanged += HandlePlayerHealthChanged;
+                playerStatsEventsBound = true;
+            }
+        }
+
+        private void EnsureAttackModule()
+        {
+            if (playerAttackModule == null)
+            {
+                playerAttackModule = GetComponent<PlayerAttackModule>();
+                if (playerAttackModule == null)
+                {
+                    playerAttackModule = gameObject.AddComponent<PlayerAttackModule>();
+                }
+            }
+        }
+
+        private void HandlePlayerHealthChanged(CharacterStats _, CharacterHealthChangedEventArgs args)
+        {
+            if (args.CurrentValue < args.PreviousValue)
+            {
+                float damageTaken = args.PreviousValue - args.CurrentValue;
+                Debug.Log($"[Player] 피해 {damageTaken} 받음 | HP {args.CurrentValue}/{args.MaxValue}");
+            }
+            else if (args.CurrentValue > args.PreviousValue)
+            {
+                float healed = args.CurrentValue - args.PreviousValue;
+                Debug.Log($"[Player] 회복 {healed} | HP {args.CurrentValue}/{args.MaxValue}");
+            }
+
+            if (!deathHandled && args.CurrentValue <= 0f)
+            {
+                Die();
+            }
+        }
+
+        private void Die()
+        {
+            deathHandled = true;
+            movement = Vector3.zero;
+            isMoving = false;
+
+            if (rb != null)
+            {
+                rb.linearVelocity = Vector3.zero;
+                rb.angularVelocity = Vector3.zero;
+            }
+
+            SetAnimation(idleSprites, idleFrameRate);
+
+            if (playerAttackModule != null)
+            {
+                playerAttackModule.enabled = false;
+            }
+
+            enabled = false;
+            Debug.Log("[Player] HP가 0이 되어 사망했습니다.");
         }
     }
 }

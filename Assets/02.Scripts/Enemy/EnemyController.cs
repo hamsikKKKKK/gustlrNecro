@@ -30,6 +30,7 @@ namespace Necrocis
         private SpriteYSort ySort;
         private Rigidbody body;
         private BoxCollider boxCollider;
+        private CharacterStats stats;
 
         // 이동
         private Vector3 anchorPosition;
@@ -43,9 +44,6 @@ namespace Necrocis
         private float idleTimer;
         private float attackTimer;
 
-        // 전투
-        private float currentHealth;
-
         // 애니메이션
         private bool usingMoveAnimation;
         private bool notifiedOwner;
@@ -54,8 +52,9 @@ namespace Necrocis
         // 공개 프로퍼티 (FSM 상태에서 사용)
         // ─────────────────────────────────
 
-        public bool IsDead => currentHealth <= 0f;
+        public bool IsDead => stats != null && stats.IsDead;
         public EnemySpawnRuleConfig Config => config;
+        public CharacterStats Stats => stats;
 
         // ─────────────────────────────────
         // 풀링 API (기존 유지)
@@ -101,13 +100,13 @@ namespace Necrocis
             hasDestination = false;
             usingMoveAnimation = false;
             notifiedOwner = false;
-            currentHealth = config != null ? config.maxHealth : 30f;
 
             transform.position = spawnPosition;
             transform.localRotation = Quaternion.identity;
             transform.localScale = Vector3.one;
 
             EnsureComponents();
+            ConfigureStats();
             ApplyPhysicsSetup();
             ApplyVisualSetup();
             SetIdleAnimation();
@@ -292,7 +291,7 @@ namespace Necrocis
                 }
             }
 
-            Vector3 step = moveDirection * config.moveSpeed * deltaTime;
+            Vector3 step = moveDirection * (stats != null ? stats.MoveSpeed : 0f) * deltaTime;
             if (step.sqrMagnitude > toDestination.sqrMagnitude)
             {
                 step = toDestination;
@@ -326,19 +325,46 @@ namespace Necrocis
 
             attackTimer = config.attackCooldown;
 
-            // TODO: 플레이어 데미지 시스템 연동
-            // PlayerController.Instance?.TakeDamage(config.attackDamage);
-            Debug.Log($"[{gameObject.name}] 공격! {config.attackDamage} 데미지");
+            float damage = stats != null ? stats.AttackPower : 0f;
+            PlayerController.Instance?.TakeDamage(damage);
+            Debug.Log($"[{gameObject.name}] 공격! {damage} 데미지");
         }
 
         public void TakeDamage(float damage)
         {
             if (IsDead) return;
-            currentHealth -= damage;
-            if (currentHealth <= 0f)
+            if (stats == null)
             {
-                currentHealth = 0f;
+                return;
+            }
+
+            stats.ApplyDamage(damage);
+            if (stats.IsDead)
+            {
                 ChangeState(EnemyDeadState.Instance);
+            }
+        }
+
+        public void ApplyKnockback(Vector3 worldDirection, float distance)
+        {
+            if (IsDead || distance <= 0f)
+            {
+                return;
+            }
+
+            Vector3 planarDirection = new Vector3(worldDirection.x, 0f, worldDirection.z);
+            if (planarDirection.sqrMagnitude <= 0.0001f)
+            {
+                return;
+            }
+
+            planarDirection.Normalize();
+            Vector3 displacement = planarDirection * distance;
+            Vector3 currentPosition = GetCurrentPosition();
+            bool moved = TryMove(currentPosition, displacement);
+            if (moved)
+            {
+                hasDestination = false;
             }
         }
 
@@ -544,6 +570,31 @@ namespace Necrocis
             ySort = GetOrAddComponent<SpriteYSort>(visualRoot.gameObject);
             body = GetOrAddComponent<Rigidbody>(gameObject);
             boxCollider = GetOrAddComponent<BoxCollider>(gameObject);
+            stats = GetOrAddComponent<CharacterStats>(gameObject);
+        }
+
+        private void ConfigureStats()
+        {
+            if (stats == null || config == null)
+            {
+                return;
+            }
+
+            List<CharacterStatValue> additionalStats = config.additionalBaseStats ?? new List<CharacterStatValue>();
+            List<CharacterStatValue> baseStats = new List<CharacterStatValue>(3 + additionalStats.Count)
+            {
+                new CharacterStatValue(CharacterStatType.MoveSpeed, config.moveSpeed),
+                new CharacterStatValue(CharacterStatType.MaxHealth, config.maxHealth),
+                new CharacterStatValue(CharacterStatType.AttackPower, config.attackDamage)
+            };
+
+            for (int i = 0; i < additionalStats.Count; i++)
+            {
+                baseStats.Add(additionalStats[i]);
+            }
+
+            stats.ClearModifiers();
+            stats.ConfigureBaseStats(baseStats, true);
         }
 
         private void ApplyVisualSetup()
