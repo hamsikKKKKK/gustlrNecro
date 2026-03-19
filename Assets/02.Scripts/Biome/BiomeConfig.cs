@@ -167,6 +167,7 @@ namespace Necrocis
         public float attackDamage = 10f;
         public float attackRange = 1.5f;
         public float attackCooldown = 1f;
+        public int expReward = 10;
 
         [Header("Separation")]
         public float separationDistance = 1.1f;

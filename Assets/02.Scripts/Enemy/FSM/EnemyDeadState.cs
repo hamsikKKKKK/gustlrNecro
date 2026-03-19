@@ -8,11 +8,11 @@ namespace Necrocis
         {
             enemy.SetIdleAnimation();
             enemy.DisableCollider();
+            enemy.GrantExp();
         }
 
         public void Update(EnemyController enemy, float deltaTime)
         {
-            // 사망 후 풀로 반환
             enemy.ReleaseToPool();
         }
 

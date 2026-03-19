@@ -108,6 +108,7 @@ namespace Necrocis
             transform.localScale = Vector3.one;
 
             EnsureComponents();
+            gameObject.tag = "Enemy";
             ApplyPhysicsSetup();
             ApplyVisualSetup();
             SetIdleAnimation();
@@ -326,9 +327,14 @@ namespace Necrocis
 
             attackTimer = config.attackCooldown;
 
-            // TODO: 플레이어 데미지 시스템 연동
-            // PlayerController.Instance?.TakeDamage(config.attackDamage);
-            Debug.Log($"[{gameObject.name}] 공격! {config.attackDamage} 데미지");
+            if (PlayerController.Instance != null)
+            {
+                Health playerHealth = PlayerController.Instance.GetComponent<Health>();
+                if (playerHealth != null)
+                {
+                    playerHealth.TakeDamage(config.attackDamage);
+                }
+            }
         }
 
         public void TakeDamage(float damage)
@@ -340,6 +346,12 @@ namespace Necrocis
                 currentHealth = 0f;
                 ChangeState(EnemyDeadState.Instance);
             }
+        }
+
+        public void GrantExp()
+        {
+            if (config == null) return;
+            LevelUpManager.AddExp(config.expReward);
         }
 
         public void DisableCollider()

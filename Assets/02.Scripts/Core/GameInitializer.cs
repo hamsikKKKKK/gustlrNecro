@@ -65,7 +65,11 @@ namespace Necrocis
         {
             // 기존 플레이어 찾기
             player = FindFirstObjectByType<PlayerController>();
-            if (player != null) return;
+            if (player != null)
+            {
+                EnsurePlayerComponents(player.gameObject);
+                return;
+            }
 
             // 스폰 위치 결정
             Vector3 spawnPos = Vector3.zero;
@@ -107,7 +111,31 @@ namespace Necrocis
                 rb.collisionDetectionMode = CollisionDetectionMode.Continuous;
             }
 
+            // 필수 컴포넌트 보장 (프리팹/기존 플레이어에도 적용)
+            EnsurePlayerComponents(player.gameObject);
+
             Debug.Log($"[GameInitializer] 플레이어 생성 완료 - 위치: {spawnPos}");
+        }
+
+        /// <summary>
+        /// 플레이어에 필요한 컴포넌트가 없으면 추가
+        /// </summary>
+        private void EnsurePlayerComponents(GameObject playerObj)
+        {
+            if (playerObj.GetComponent<PlayerAttack>() == null)
+                playerObj.AddComponent<PlayerAttack>();
+
+            if (playerObj.GetComponent<Health>() == null)
+                playerObj.AddComponent<Health>();
+
+            if (playerObj.GetComponent<PlayerStats>() == null)
+                playerObj.AddComponent<PlayerStats>();
+
+            if (playerObj.GetComponent<ExpBarUI>() == null)
+                playerObj.AddComponent<ExpBarUI>();
+
+            if (playerObj.GetComponent<LevelUpUI>() == null)
+                playerObj.AddComponent<LevelUpUI>();
         }
 
         /// <summary>

@@ -119,6 +119,52 @@ NavMeshSettings:
     debug:
       m_Flags: 0
   m_NavMeshData: {fileID: 0}
+--- !u!1 &499068865
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 499068867}
+  - component: {fileID: 499068866}
+  m_Layer: 0
+  m_Name: ObjectPooler
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &499068866
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 499068865}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 5e954767ce750fa4fa4d2b06d853a96e, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::Necrocis.ObjectPooler
+  objectToPool: {fileID: 6400152538108438740, guid: 544f062a84149db41bd3fcd823def264, type: 3}
+  amountToPool: 10
+--- !u!4 &499068867
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 499068865}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 388.4642, y: 0, z: 230.29793}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &571540665
 GameObject:
   m_ObjectHideFlags: 0
@@ -481,6 +527,11 @@ GameObject:
   - component: {fileID: 1905923571}
   - component: {fileID: 1905923570}
   - component: {fileID: 1905923569}
+  - component: {fileID: 1905923577}
+  - component: {fileID: 1905923576}
+  - component: {fileID: 1905923575}
+  - component: {fileID: 1905923574}
+  - component: {fileID: 1905923573}
   m_Layer: 0
   m_Name: Player
   m_TagString: Player
@@ -608,6 +659,79 @@ Transform:
   - {fileID: 571540667}
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &1905923573
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1905923568}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: d9b6de3ca78ea0542b709496bc2f0191, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::Necrocis.ExpBarUI
+  barColor: {r: 0.3, g: 0.7, b: 1, a: 1}
+  bgColor: {r: 0.15, g: 0.15, b: 0.15, a: 0.8}
+--- !u!114 &1905923574
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1905923568}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 4faf2056e12e391449854ca77f1defb0, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::Necrocis.LevelUpUI
+  panelColor: {r: 0, g: 0, b: 0, a: 0.85}
+  buttonColor: {r: 0.2, g: 0.2, b: 0.3, a: 1}
+  buttonHoverColor: {r: 0.3, g: 0.3, b: 0.5, a: 1}
+  fontSize: 20
+--- !u!114 &1905923575
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1905923568}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 29e0a1d3b5e85a64791db8bebcb0870b, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::Necrocis.PlayerStats
+--- !u!114 &1905923576
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1905923568}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: f7994394bc01c564588e6c35d6653ebb, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::Necrocis.Health
+  baseMaxHealth: 100
+  invincibilityDuration: 0.2
+--- !u!114 &1905923577
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1905923568}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: efa6a8109fc9faa498668e962a54c43c, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::Necrocis.PlayerAttack
+  meleeAttackDamage: 20
+  meleeAttackBoxSize: {x: 1, y: 1, z: 2}
+  meleeAttackOffset: 1
+  projectileSpawnPoint: {fileID: 0}
+  attackCooldown: 1
 --- !u!1 &2001426150
 GameObject:
   m_ObjectHideFlags: 0
@@ -676,3 +800,4 @@ SceneRoots:
   - {fileID: 2001426152}
   - {fileID: 1905923572}
   - {fileID: 837097998}
+  - {fileID: 499068867}
