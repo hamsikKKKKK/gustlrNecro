@@ -10,6 +10,7 @@ namespace Necrocis
     {
         private const int SpawnPositionAttempts = 10;
         private const float MinSpawnSpacing = 0.75f;
+        private const float ViewportVisibilityMargin = 0.05f;
 
         private readonly List<EnemyController> activeEnemies = new List<EnemyController>();
 
@@ -52,19 +53,21 @@ namespace Necrocis
             float playerDistance = GetPlanarDistance(playerTransform.position, anchorPosition);
             if (playerDistance > config.activationRadius)
             {
-                initializedWave = false;
                 if (activeEnemies.Count > 0)
                 {
                     ClearSpawnedEnemies();
                 }
+                initializedWave = false;
                 return;
             }
 
             if (!initializedWave)
             {
-                FillToMaxAlive();
-                initializedWave = true;
-                nextSpawnTime = Time.time + config.respawnCooldown;
+                if (TrySpawnWave())
+                {
+                    initializedWave = true;
+                    nextSpawnTime = Time.time + config.respawnCooldown;
+                }
                 return;
             }
 
@@ -73,7 +76,12 @@ namespace Necrocis
                 return;
             }
 
-            if (SpawnEnemy())
+            if (IsSpawnerVisibleToCamera())
+            {
+                return;
+            }
+
+            if (TrySpawnWave())
             {
                 nextSpawnTime = Time.time + config.respawnCooldown;
             }
@@ -124,9 +132,14 @@ namespace Necrocis
         public void NotifyEnemyReleased(EnemyController enemy)
         {
             activeEnemies.Remove(enemy);
+            if (enemy != null && enemy.IsDead && initializedWave && activeEnemies.Count < config.maxAlive)
+            {
+                nextSpawnTime = Time.time + config.respawnCooldown;
+                Debug.Log($"[EnemySpawner] 리스폰 대기 시작 - 카메라 밖에서 부족한 수만큼 보충 ({config.name})");
+            }
         }
 
-        private void FillToMaxAlive()
+        private bool TrySpawnWave()
         {
             while (activeEnemies.Count < config.maxAlive)
             {
@@ -135,6 +148,8 @@ namespace Necrocis
                     break;
                 }
             }
+
+            return activeEnemies.Count > 0;
         }
 
         private bool SpawnEnemy()
@@ -248,6 +263,38 @@ namespace Necrocis
             }
 
             activeEnemies.Clear();
+        }
+
+        private bool IsSpawnerVisibleToCamera()
+        {
+            Camera activeCamera = Camera.main;
+            if (DontStarveCamera.Instance != null)
+            {
+                Camera dontStarveCam = DontStarveCamera.Instance.GetComponent<Camera>();
+                if (dontStarveCam != null)
+                {
+                    activeCamera = dontStarveCam;
+                }
+            }
+
+            if (activeCamera == null)
+            {
+                return false;
+            }
+
+            Vector3 visibilityPosition = anchorPosition;
+            visibilityPosition.y += config != null ? config.heightOffset : 0f;
+
+            Vector3 viewportPoint = activeCamera.WorldToViewportPoint(visibilityPosition);
+            if (viewportPoint.z <= 0f)
+            {
+                return false;
+            }
+
+            return viewportPoint.x >= -ViewportVisibilityMargin
+                && viewportPoint.x <= 1f + ViewportVisibilityMargin
+                && viewportPoint.y >= -ViewportVisibilityMargin
+                && viewportPoint.y <= 1f + ViewportVisibilityMargin;
         }
 
         private static float GetPlanarDistance(Vector3 a, Vector3 b)

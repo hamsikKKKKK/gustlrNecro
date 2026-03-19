@@ -169,6 +169,9 @@ namespace Necrocis
         public float attackCooldown = 1f;
         public int expReward = 10;
 
+        [Header("Additional Stats")]
+        public List<CharacterStatValue> additionalBaseStats = new List<CharacterStatValue>();
+
         [Header("Separation")]
         public float separationDistance = 1.1f;
         public float separationStrength = 1f;

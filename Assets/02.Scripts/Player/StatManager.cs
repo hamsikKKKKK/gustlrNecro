@@ -2,18 +2,6 @@ using System.Collections.Generic;
 
 namespace Necrocis
 {
-    public enum StatType
-    {
-        Health,
-        Speed,
-        Attack,
-        Defense,
-        AttackSpeed,
-        Range,
-        Magic,
-        Cooldown
-    }
-
     public enum StatChoice
     {
         HealthUp,
@@ -25,8 +13,8 @@ namespace Necrocis
 
     public class StatEffect
     {
-        public Dictionary<StatType, float> flatStats = new Dictionary<StatType, float>();
-        public Dictionary<StatType, float> percentStats = new Dictionary<StatType, float>();
+        public Dictionary<CharacterStatType, float> flatStats = new Dictionary<CharacterStatType, float>();
+        public Dictionary<CharacterStatType, float> percentStats = new Dictionary<CharacterStatType, float>();
     }
 
     public static class StatManager
@@ -44,43 +32,43 @@ namespace Necrocis
             {
                 [StatChoice.HealthUp] = new StatEffect
                 {
-                    flatStats = new Dictionary<StatType, float>
+                    flatStats = new Dictionary<CharacterStatType, float>
                     {
-                        [StatType.Health] = 10
+                        [CharacterStatType.MaxHealth] = 10
                     }
                 },
                 [StatChoice.SpeedUp] = new StatEffect
                 {
-                    percentStats = new Dictionary<StatType, float>
+                    percentStats = new Dictionary<CharacterStatType, float>
                     {
-                        [StatType.Speed] = 3
+                        [CharacterStatType.MoveSpeed] = 3
                     }
                 },
                 [StatChoice.AttackDefenseUp] = new StatEffect
                 {
-                    flatStats = new Dictionary<StatType, float>
+                    flatStats = new Dictionary<CharacterStatType, float>
                     {
-                        [StatType.Attack] = 3,
-                        [StatType.Defense] = 1
+                        [CharacterStatType.AttackPower] = 3,
+                        [CharacterStatType.Defense] = 1
                     }
                 },
                 [StatChoice.AttackSpeedRangeUp] = new StatEffect
                 {
-                    percentStats = new Dictionary<StatType, float>
+                    percentStats = new Dictionary<CharacterStatType, float>
                     {
-                        [StatType.AttackSpeed] = 5,
-                        [StatType.Range] = 5
+                        [CharacterStatType.AttackSpeed] = 5,
+                        [CharacterStatType.Range] = 5
                     }
                 },
                 [StatChoice.MagicCooldownUp] = new StatEffect
                 {
-                    flatStats = new Dictionary<StatType, float>
+                    flatStats = new Dictionary<CharacterStatType, float>
                     {
-                        [StatType.Magic] = 3
+                        [CharacterStatType.Magic] = 3
                     },
-                    percentStats = new Dictionary<StatType, float>
+                    percentStats = new Dictionary<CharacterStatType, float>
                     {
-                        [StatType.Cooldown] = -3
+                        [CharacterStatType.Cooldown] = -3
                     }
                 }
             };

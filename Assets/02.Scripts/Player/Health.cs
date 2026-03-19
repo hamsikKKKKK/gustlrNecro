@@ -6,69 +6,65 @@ namespace Necrocis
 {
     /// <summary>
     /// 플레이어 체력 관리.
-    /// PlayerStats와 연동하여 최대 체력을 가져옴.
+    /// CharacterStats 백엔드를 사용하며, 방어력 감소 + 무적 시간 처리.
     /// </summary>
     public class Health : MonoBehaviour
     {
-        [SerializeField] private float baseMaxHealth = 100f;
         [Tooltip("피격 후 무적 시간(초)")]
         [SerializeField] private float invincibilityDuration = 0.2f;
 
-        private float currentHealth;
         private bool isInvincible;
 
-        public float CurrentHealth => currentHealth;
-        public float MaxHealth => GetMaxHealth();
-        public bool IsDead => currentHealth <= 0f;
+        private CharacterStats Stats => PlayerStats.Instance?.RuntimeStats;
+
+        public float CurrentHealth => Stats?.CurrentHealth ?? 0f;
+        public float MaxHealth => Stats?.MaxHealth ?? 0f;
+        public bool IsDead => Stats?.IsDead ?? false;
 
         public event Action<float, float> OnHealthChanged;
         public event Action OnDeath;
 
-        private void Awake()
+        private void OnEnable()
         {
-            currentHealth = GetMaxHealth();
+            if (Stats != null)
+                Stats.HealthChanged += HandleHealthChanged;
         }
 
-        private float GetMaxHealth()
+        private void OnDisable()
         {
-            if (PlayerStats.Instance != null)
-                return PlayerStats.Instance.GetHealth();
-            return baseMaxHealth;
+            if (Stats != null)
+                Stats.HealthChanged -= HandleHealthChanged;
+        }
+
+        private void HandleHealthChanged(CharacterStats sender, CharacterHealthChangedEventArgs args)
+        {
+            OnHealthChanged?.Invoke(args.CurrentValue, args.MaxValue);
+
+            if (args.CurrentValue <= 0f && args.PreviousValue > 0f)
+                OnDeath?.Invoke();
         }
 
         public void TakeDamage(float damageAmount)
         {
             if (isInvincible || IsDead || damageAmount <= 0f) return;
 
-            float defense = 0f;
-            if (PlayerStats.Instance != null)
-                defense = PlayerStats.Instance.GetDefense();
-
+            float defense = Stats?.Defense ?? 0f;
             float actualDamage = Mathf.Max(1f, damageAmount - defense);
-            currentHealth = Mathf.Max(0f, currentHealth - actualDamage);
-
-            OnHealthChanged?.Invoke(currentHealth, MaxHealth);
+            Stats?.ApplyDamage(actualDamage);
 
             StartCoroutine(InvincibilityCoroutine());
-
-            if (currentHealth <= 0f)
-            {
-                OnDeath?.Invoke();
-            }
         }
 
         public void Heal(float amount)
         {
             if (IsDead || amount <= 0f) return;
-            currentHealth = Mathf.Min(currentHealth + amount, MaxHealth);
-            OnHealthChanged?.Invoke(currentHealth, MaxHealth);
+            Stats?.RestoreHealth(amount);
         }
 
         public void ResetHealth()
         {
-            currentHealth = GetMaxHealth();
             isInvincible = false;
-            OnHealthChanged?.Invoke(currentHealth, MaxHealth);
+            Stats?.ResetHealthToMax();
         }
 
         private IEnumerator InvincibilityCoroutine()

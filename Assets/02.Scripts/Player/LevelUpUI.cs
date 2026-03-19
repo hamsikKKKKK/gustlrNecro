@@ -195,19 +195,19 @@ namespace Necrocis
             return string.Join(", ", parts);
         }
 
-        private string GetStatName(StatType type)
+        private string GetStatName(CharacterStatType type)
         {
             switch (type)
             {
-                case StatType.Health:      return "체력";
-                case StatType.Speed:       return "이동속도";
-                case StatType.Attack:      return "공격력";
-                case StatType.Defense:     return "방어력";
-                case StatType.AttackSpeed: return "공격속도";
-                case StatType.Range:       return "사거리";
-                case StatType.Magic:       return "마력";
-                case StatType.Cooldown:    return "쿨타임";
-                default:                   return type.ToString();
+                case CharacterStatType.MaxHealth:    return "체력";
+                case CharacterStatType.MoveSpeed:    return "이동속도";
+                case CharacterStatType.AttackPower:  return "공격력";
+                case CharacterStatType.Defense:      return "방어력";
+                case CharacterStatType.AttackSpeed:  return "공격속도";
+                case CharacterStatType.Range:        return "사거리";
+                case CharacterStatType.Magic:        return "마력";
+                case CharacterStatType.Cooldown:     return "쿨타임";
+                default:                             return type.ToString();
             }
         }
 
