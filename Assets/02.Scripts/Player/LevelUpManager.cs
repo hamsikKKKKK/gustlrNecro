@@ -24,6 +24,7 @@ namespace Necrocis
         private const float EXP_MULTIPLIER = 1.25f;
 
         public static Action OnLevelUp;
+        public static Action OnJobSelect;
         public static Action<int> OnExpGained;
 
         public static void AddExp(int baseAmount)
@@ -66,7 +67,10 @@ namespace Necrocis
             if (pendingLevelUps > 0)
             {
                 pendingLevelUps--;
-                OnLevelUp?.Invoke();
+                if (currentLevel == 10 && currentJob == JobType.None)
+                    OnJobSelect?.Invoke();
+                else
+                    OnLevelUp?.Invoke();
             }
         }
 
@@ -80,13 +84,27 @@ namespace Necrocis
             if (pendingLevelUps > 0)
             {
                 pendingLevelUps--;
-                OnLevelUp?.Invoke();
+                if (currentLevel == 10 && currentJob == JobType.None)
+                    OnJobSelect?.Invoke();
+                else
+                    OnLevelUp?.Invoke();
             }
         }
 
         private static void CalculateExpRequired()
         {
             expRequired = Mathf.RoundToInt(BASE_EXP * Mathf.Pow(EXP_MULTIPLIER, currentLevel - 2));
+        }
+
+        public static void DebugLevelUp()
+        {
+            if (currentLevel >= MAX_LEVEL) return;
+            currentLevel++;
+            CalculateExpRequired();
+            if (currentLevel == 10 && currentJob == JobType.None)
+                OnJobSelect?.Invoke();
+            else
+                OnLevelUp?.Invoke();
         }
 
         public static int GetCurrentLevel() => currentLevel;

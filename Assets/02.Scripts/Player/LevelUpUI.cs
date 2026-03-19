@@ -28,7 +28,9 @@ namespace Necrocis
         private Text guideText;
         private List<GameObject> choiceButtons = new List<GameObject>();
         private List<StatChoice> currentChoices = new List<StatChoice>();
+        private List<JobType> currentJobs = new List<JobType>();
         private bool isShowing;
+        private bool isJobSelection;
 
         private void Awake()
         {
@@ -43,11 +45,13 @@ namespace Necrocis
         private void OnEnable()
         {
             LevelUpManager.OnLevelUp += ShowLevelUpChoices;
+            LevelUpManager.OnJobSelect += ShowJobSelection;
         }
 
         private void OnDisable()
         {
             LevelUpManager.OnLevelUp -= ShowLevelUpChoices;
+            LevelUpManager.OnJobSelect -= ShowJobSelection;
         }
 
         private void Start()
@@ -74,14 +78,26 @@ namespace Necrocis
             var keyboard = Keyboard.current;
             if (keyboard == null) return;
 
-            if (keyboard.digit1Key.wasPressedThisFrame && currentChoices.Count >= 1)
-                SelectChoice(currentChoices[0]);
-            else if (keyboard.digit2Key.wasPressedThisFrame && currentChoices.Count >= 2)
-                SelectChoice(currentChoices[1]);
-            else if (keyboard.digit3Key.wasPressedThisFrame && currentChoices.Count >= 3)
-                SelectChoice(currentChoices[2]);
-            else if (keyboard.digit4Key.wasPressedThisFrame && currentChoices.Count >= 4)
-                SelectChoice(currentChoices[3]);
+            if (isJobSelection)
+            {
+                if (keyboard.digit1Key.wasPressedThisFrame && currentJobs.Count >= 1)
+                    SelectJob(currentJobs[0]);
+                else if (keyboard.digit2Key.wasPressedThisFrame && currentJobs.Count >= 2)
+                    SelectJob(currentJobs[1]);
+                else if (keyboard.digit3Key.wasPressedThisFrame && currentJobs.Count >= 3)
+                    SelectJob(currentJobs[2]);
+            }
+            else
+            {
+                if (keyboard.digit1Key.wasPressedThisFrame && currentChoices.Count >= 1)
+                    SelectChoice(currentChoices[0]);
+                else if (keyboard.digit2Key.wasPressedThisFrame && currentChoices.Count >= 2)
+                    SelectChoice(currentChoices[1]);
+                else if (keyboard.digit3Key.wasPressedThisFrame && currentChoices.Count >= 3)
+                    SelectChoice(currentChoices[2]);
+                else if (keyboard.digit4Key.wasPressedThisFrame && currentChoices.Count >= 4)
+                    SelectChoice(currentChoices[3]);
+            }
         }
 
         private void ShowLevelUpChoices()
@@ -103,6 +119,101 @@ namespace Necrocis
             Time.timeScale = 0f;
         }
 
+        private void ShowJobSelection()
+        {
+            currentJobs = new List<JobType> { JobType.Warrior, JobType.Mage, JobType.Archer };
+            isJobSelection = true;
+
+            titleText.text = "직업 선택!";
+            titleText.color = new Color(0.4f, 0.8f, 1f);
+            levelText.text = $"Lv.{LevelUpManager.GetCurrentLevel()}";
+            guideText.text = "숫자키(1~3)로 직업을 선택하세요";
+            ClearButtons();
+
+            for (int i = 0; i < currentJobs.Count; i++)
+            {
+                CreateJobButton(currentJobs[i], i + 1);
+            }
+
+            uiRoot.SetActive(true);
+            isShowing = true;
+            Time.timeScale = 0f;
+        }
+
+        private void SelectJob(JobType job)
+        {
+            LevelUpManager.SetJob(job);
+            isJobSelection = false;
+            titleText.color = new Color(1f, 0.85f, 0.2f);
+
+            if (LevelUpManager.HasPendingLevelUp())
+            {
+                LevelUpManager.ProcessNextPendingLevelUp();
+            }
+            else
+            {
+                uiRoot.SetActive(false);
+                isShowing = false;
+                Time.timeScale = 1f;
+                GrantPostLevelUpInvincibility();
+            }
+        }
+
+        private void CreateJobButton(JobType job, int index)
+        {
+            GameObject btnObj = new GameObject(job.ToString(), typeof(RectTransform));
+            btnObj.transform.SetParent(buttonContainer, false);
+
+            Image btnImage = btnObj.AddComponent<Image>();
+            btnImage.color = buttonColor;
+
+            Button btn = btnObj.AddComponent<Button>();
+            ColorBlock colors = btn.colors;
+            colors.normalColor = buttonColor;
+            colors.highlightedColor = buttonHoverColor;
+            colors.pressedColor = buttonHoverColor;
+            colors.selectedColor = buttonColor;
+            btn.colors = colors;
+
+            JobType captured = job;
+            btn.onClick.AddListener(() => SelectJob(captured));
+
+            LayoutElement layout = btnObj.AddComponent<LayoutElement>();
+            layout.preferredHeight = 80;
+            layout.flexibleWidth = 1;
+
+            GameObject textObj = new GameObject("Text", typeof(RectTransform));
+            textObj.transform.SetParent(btnObj.transform, false);
+            RectTransform textRect = textObj.GetComponent<RectTransform>();
+            textRect.anchorMin = Vector2.zero;
+            textRect.anchorMax = Vector2.one;
+            textRect.offsetMin = new Vector2(10, 5);
+            textRect.offsetMax = new Vector2(-10, -5);
+
+            Text text = textObj.AddComponent<Text>();
+            text.text = $"[{index}] {GetJobDescription(job)}";
+            text.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+            text.fontSize = fontSize;
+            text.color = Color.white;
+            text.alignment = TextAnchor.MiddleCenter;
+            text.resizeTextForBestFit = true;
+            text.resizeTextMinSize = 14;
+            text.resizeTextMaxSize = fontSize;
+
+            choiceButtons.Add(btnObj);
+        }
+
+        private string GetJobDescription(JobType job)
+        {
+            switch (job)
+            {
+                case JobType.Warrior: return "전사 - 공격력/방어력 특화";
+                case JobType.Mage:    return "마법사 - 마력/쿨타임 특화";
+                case JobType.Archer:  return "궁수 - 공격속도/사거리 특화";
+                default:              return job.ToString();
+            }
+        }
+
         private void SelectChoice(StatChoice choice)
         {
             if (PlayerStats.Instance != null)
@@ -120,6 +231,7 @@ namespace Necrocis
                 uiRoot.SetActive(false);
                 isShowing = false;
                 Time.timeScale = 1f;
+                GrantPostLevelUpInvincibility();
             }
         }
 
@@ -303,6 +415,13 @@ namespace Necrocis
             btnContainerLayout.flexibleHeight = 1;
 
             buttonContainer = btnContainer.transform;
+        }
+
+        private void GrantPostLevelUpInvincibility()
+        {
+            Health health = FindFirstObjectByType<Health>();
+            if (health != null)
+                health.GrantTemporaryInvincibility(1f);
         }
 
         private GameObject CreateUIElement(string name, Transform parent)

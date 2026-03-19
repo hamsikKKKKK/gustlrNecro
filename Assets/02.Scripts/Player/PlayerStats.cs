@@ -18,14 +18,14 @@ namespace Necrocis
         private bool initialized;
 
         // 기본 스탯
-        private const float BASE_MAX_HEALTH = 100f;
+        private const float BASE_MAX_HEALTH = 150f;
         private const float BASE_MOVE_SPEED = 5f;
         private const float BASE_ATTACK_POWER = 30f;
         private const float BASE_DEFENSE = 5f;
         private const float BASE_ATTACK_SPEED = 1f;
         private const float BASE_RANGE = 1f;
         private const float BASE_MAGIC = 20f;
-        private const float BASE_COOLDOWN = 0f;
+        private const float BASE_COOLDOWN = 10f;
 
         public event Action<CharacterStats, CharacterStatChangedEventArgs> StatChanged
         {
@@ -75,16 +75,32 @@ namespace Necrocis
 
             RuntimeStats.ConfigureBaseStats(new CharacterStatValue[]
             {
-                new(CharacterStatType.MaxHealth, BASE_MAX_HEALTH),
-                new(CharacterStatType.MoveSpeed, BASE_MOVE_SPEED),
-                new(CharacterStatType.AttackPower, BASE_ATTACK_POWER),
-                new(CharacterStatType.Defense, BASE_DEFENSE),
-                new(CharacterStatType.AttackSpeed, BASE_ATTACK_SPEED),
-                new(CharacterStatType.Range, BASE_RANGE),
-                new(CharacterStatType.Magic, BASE_MAGIC),
-                new(CharacterStatType.Cooldown, BASE_COOLDOWN),
+                new CharacterStatValue(CharacterStatType.MaxHealth, BASE_MAX_HEALTH),
+                new CharacterStatValue(CharacterStatType.MoveSpeed, BASE_MOVE_SPEED),
+                new CharacterStatValue(CharacterStatType.AttackPower, BASE_ATTACK_POWER),
+                new CharacterStatValue(CharacterStatType.Defense, BASE_DEFENSE),
+                new CharacterStatValue(CharacterStatType.AttackSpeed, BASE_ATTACK_SPEED),
+                new CharacterStatValue(CharacterStatType.Range, BASE_RANGE),
+                new CharacterStatValue(CharacterStatType.Magic, BASE_MAGIC),
+                new CharacterStatValue(CharacterStatType.Cooldown, BASE_COOLDOWN),
             }, true);
 
+            initialized = true;
+        }
+
+        public void ConfigureBaseStats(float moveSpeed, float maxHealth, float attackPower, bool resetCurrentHealth = false)
+        {
+            RuntimeStats.ConfigureBaseStats(new CharacterStatValue[]
+            {
+                new CharacterStatValue(CharacterStatType.MaxHealth, maxHealth),
+                new CharacterStatValue(CharacterStatType.MoveSpeed, moveSpeed),
+                new CharacterStatValue(CharacterStatType.AttackPower, attackPower),
+                new CharacterStatValue(CharacterStatType.Defense, BASE_DEFENSE),
+                new CharacterStatValue(CharacterStatType.AttackSpeed, BASE_ATTACK_SPEED),
+                new CharacterStatValue(CharacterStatType.Range, BASE_RANGE),
+                new CharacterStatValue(CharacterStatType.Magic, BASE_MAGIC),
+                new CharacterStatValue(CharacterStatType.Cooldown, BASE_COOLDOWN),
+            }, !initialized || resetCurrentHealth);
             initialized = true;
         }
 
@@ -122,6 +138,16 @@ namespace Necrocis
         }
 
         // ─────────────────────────────────
+        // 프로퍼티 (PlayerController 호환)
+        // ─────────────────────────────────
+
+        public float MoveSpeed => RuntimeStats.MoveSpeed;
+        public float MaxHealth => RuntimeStats.MaxHealth;
+        public float CurrentHealth => RuntimeStats.CurrentHealth;
+        public float AttackPower => RuntimeStats.AttackPower;
+        public bool IsDead => RuntimeStats.IsDead;
+
+        // ─────────────────────────────────
         // 편의 게터 (기존 코드 호환)
         // ─────────────────────────────────
 
@@ -157,6 +183,13 @@ namespace Necrocis
             if (modifiers == null) return;
             foreach (CharacterStatModifierData modifier in modifiers)
                 RuntimeStats.AddModifier(modifier.ToModifier(source));
+        }
+
+        public void ApplyOrReplaceSourceModifiers(IEnumerable<CharacterStatModifierData> modifiers, object source)
+        {
+            EnsureInitialized();
+            RuntimeStats.RemoveModifiersFromSource(source);
+            ApplyModifiers(modifiers, source);
         }
 
         public int RemoveModifiersFromSource(object source)

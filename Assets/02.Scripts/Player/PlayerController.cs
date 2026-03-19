@@ -176,11 +176,11 @@ namespace Necrocis
             var keyboard = Keyboard.current;
             if (keyboard != null)
             {
-                // 방향키는 공격용으로 분리하고 이동은 WASD만 사용
-                bool left = keyboard.aKey.isPressed;
-                bool right = keyboard.dKey.isPressed;
-                bool down = keyboard.sKey.isPressed;
-                bool up = keyboard.wKey.isPressed;
+                // WASD + 방향키 이동
+                bool left = keyboard.aKey.isPressed || keyboard.leftArrowKey.isPressed;
+                bool right = keyboard.dKey.isPressed || keyboard.rightArrowKey.isPressed;
+                bool down = keyboard.sKey.isPressed || keyboard.downArrowKey.isPressed;
+                bool up = keyboard.wKey.isPressed || keyboard.upArrowKey.isPressed;
 
                 if (left && !right) horizontal = -1f;
                 else if (right && !left) horizontal = 1f;

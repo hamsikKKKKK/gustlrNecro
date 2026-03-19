@@ -38,11 +38,14 @@ namespace Necrocis
 
             bool canAttack = Time.time >= lastAttackTime + attackCooldown;
 
+            if (keyboard.pKey.wasPressedThisFrame)
+            {
+                LevelUpManager.DebugLevelUp();
+                return;
+            }
+
             if (keyboard.qKey.wasPressedThisFrame)
             {
-                Debug.Log($"[PlayerAttack] Q키 감지! canAttack={canAttack}");
-                if (!canAttack) return;
-                lastAttackTime = Time.time;
                 MeleeAttack();
             }
             else if (keyboard.eKey.wasPressedThisFrame)

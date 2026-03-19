@@ -24,16 +24,31 @@ namespace Necrocis
         public event Action<float, float> OnHealthChanged;
         public event Action OnDeath;
 
+        private bool subscribed;
+
         private void OnEnable()
         {
-            if (Stats != null)
-                Stats.HealthChanged += HandleHealthChanged;
+            TrySubscribe();
+        }
+
+        private void Update()
+        {
+            if (!subscribed)
+                TrySubscribe();
+        }
+
+        private void TrySubscribe()
+        {
+            if (subscribed || Stats == null) return;
+            Stats.HealthChanged += HandleHealthChanged;
+            subscribed = true;
         }
 
         private void OnDisable()
         {
             if (Stats != null)
                 Stats.HealthChanged -= HandleHealthChanged;
+            subscribed = false;
         }
 
         private void HandleHealthChanged(CharacterStats sender, CharacterHealthChangedEventArgs args)
@@ -67,10 +82,22 @@ namespace Necrocis
             Stats?.ResetHealthToMax();
         }
 
+        public void GrantTemporaryInvincibility(float duration)
+        {
+            StartCoroutine(InvincibilityCoroutine(duration));
+        }
+
         private IEnumerator InvincibilityCoroutine()
         {
             isInvincible = true;
             yield return new WaitForSeconds(invincibilityDuration);
+            isInvincible = false;
+        }
+
+        private IEnumerator InvincibilityCoroutine(float duration)
+        {
+            isInvincible = true;
+            yield return new WaitForSeconds(duration);
             isInvincible = false;
         }
     }
