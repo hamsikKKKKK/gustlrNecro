@@ -29,28 +29,23 @@ namespace Necrocis
 
         private void HandleAttackInput()
         {
-            var keyboard = Keyboard.current;
-            if (keyboard == null)
-            {
-                Debug.LogWarning("[PlayerAttack] Keyboard.current가 null입니다.");
-                return;
-            }
+            var input = InputManager.Instance;
+            if (input == null) return;
 
             bool canAttack = Time.time >= lastAttackTime + attackCooldown;
 
-            if (keyboard.pKey.wasPressedThisFrame)
+            if (input.DebugLevelUpAction.WasPressedThisFrame())
             {
                 LevelUpManager.DebugLevelUp();
                 return;
             }
 
-            if (keyboard.qKey.wasPressedThisFrame)
+            if (input.MeleeAttackAction.WasPressedThisFrame())
             {
                 MeleeAttack();
             }
-            else if (keyboard.eKey.wasPressedThisFrame)
+            else if (input.RangedAttackAction.WasPressedThisFrame())
             {
-                Debug.Log($"[PlayerAttack] E키 감지! canAttack={canAttack}");
                 if (!canAttack) return;
                 lastAttackTime = Time.time;
                 RangedAttack();

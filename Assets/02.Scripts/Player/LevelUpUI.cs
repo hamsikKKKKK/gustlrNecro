@@ -75,27 +75,27 @@ namespace Necrocis
         {
             if (!isShowing) return;
 
-            var keyboard = Keyboard.current;
-            if (keyboard == null) return;
+            var input = InputManager.Instance;
+            if (input == null) return;
 
             if (isJobSelection)
             {
-                if (keyboard.digit1Key.wasPressedThisFrame && currentJobs.Count >= 1)
+                if (input.Digit1Action.WasPressedThisFrame() && currentJobs.Count >= 1)
                     SelectJob(currentJobs[0]);
-                else if (keyboard.digit2Key.wasPressedThisFrame && currentJobs.Count >= 2)
+                else if (input.Digit2Action.WasPressedThisFrame() && currentJobs.Count >= 2)
                     SelectJob(currentJobs[1]);
-                else if (keyboard.digit3Key.wasPressedThisFrame && currentJobs.Count >= 3)
+                else if (input.Digit3Action.WasPressedThisFrame() && currentJobs.Count >= 3)
                     SelectJob(currentJobs[2]);
             }
             else
             {
-                if (keyboard.digit1Key.wasPressedThisFrame && currentChoices.Count >= 1)
+                if (input.Digit1Action.WasPressedThisFrame() && currentChoices.Count >= 1)
                     SelectChoice(currentChoices[0]);
-                else if (keyboard.digit2Key.wasPressedThisFrame && currentChoices.Count >= 2)
+                else if (input.Digit2Action.WasPressedThisFrame() && currentChoices.Count >= 2)
                     SelectChoice(currentChoices[1]);
-                else if (keyboard.digit3Key.wasPressedThisFrame && currentChoices.Count >= 3)
+                else if (input.Digit3Action.WasPressedThisFrame() && currentChoices.Count >= 3)
                     SelectChoice(currentChoices[2]);
-                else if (keyboard.digit4Key.wasPressedThisFrame && currentChoices.Count >= 4)
+                else if (input.Digit4Action.WasPressedThisFrame() && currentChoices.Count >= 4)
                     SelectChoice(currentChoices[3]);
             }
         }

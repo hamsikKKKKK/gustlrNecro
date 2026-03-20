@@ -30,6 +30,13 @@ namespace Necrocis
         /// </summary>
         private void InitializeGame()
         {
+            // InputManager 확인/생성
+            if (InputManager.Instance == null)
+            {
+                GameObject inputObj = new GameObject("InputManager");
+                inputObj.AddComponent<InputManager>();
+            }
+
             // GameManager 확인/생성
             if (GameManager.Instance == null)
             {

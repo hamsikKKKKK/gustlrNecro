@@ -169,33 +169,22 @@ namespace Necrocis
                 return;
             }
 
-            // 새 Input System 사용
-            float horizontal = 0f;
-            float vertical = 0f;
-
-            var keyboard = Keyboard.current;
-            if (keyboard != null)
+            // InputManager 기반 입력
+            if (InputManager.Instance == null)
             {
-                // WASD + 방향키 이동
-                bool left = keyboard.aKey.isPressed || keyboard.leftArrowKey.isPressed;
-                bool right = keyboard.dKey.isPressed || keyboard.rightArrowKey.isPressed;
-                bool down = keyboard.sKey.isPressed || keyboard.downArrowKey.isPressed;
-                bool up = keyboard.wKey.isPressed || keyboard.upArrowKey.isPressed;
-
-                if (left && !right) horizontal = -1f;
-                else if (right && !left) horizontal = 1f;
-
-                if (down && !up) vertical = -1f;
-                else if (up && !down) vertical = 1f;
+                GameObject obj = new GameObject("InputManager");
+                obj.AddComponent<InputManager>();
             }
+            var input = InputManager.Instance;
 
-            movement = new Vector3(horizontal, 0, vertical).normalized;
+            Vector2 moveInput = input.MoveAction.ReadValue<Vector2>();
+            movement = new Vector3(moveInput.x, 0, moveInput.y).normalized;
             isMoving = movement.sqrMagnitude > 0.01f;
 
             // 방향 결정 (마지막 입력 방향 유지)
             if (isMoving)
             {
-                UpdateDirection(horizontal, vertical);
+                UpdateDirection(moveInput.x, moveInput.y);
             }
 
             // 애니메이션 변경
