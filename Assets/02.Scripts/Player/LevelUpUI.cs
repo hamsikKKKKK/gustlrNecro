@@ -106,6 +106,9 @@ namespace Necrocis
             if (choices == null || choices.Count == 0) return;
 
             currentChoices = choices;
+            titleText.text = "LEVEL UP!";
+            titleText.color = new Color(1f, 0.85f, 0.2f);
+            guideText.text = "숫자키(1~4)로 능력을 선택하세요";
             levelText.text = $"Lv.{LevelUpManager.GetCurrentLevel()}";
             ClearButtons();
 

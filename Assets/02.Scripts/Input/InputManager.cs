@@ -9,7 +9,19 @@ namespace Necrocis
     /// </summary>
     public class InputManager : MonoBehaviour
     {
-        public static InputManager Instance { get; private set; }
+        public static InputManager Instance
+        {
+            get
+            {
+                if (instance == null)
+                {
+                    GameObject obj = new GameObject("InputManager");
+                    obj.AddComponent<InputManager>();
+                }
+                return instance;
+            }
+        }
+        private static InputManager instance;
 
         // 이동
         public InputAction MoveAction { get; private set; }
@@ -24,6 +36,9 @@ namespace Necrocis
         public InputAction Digit3Action { get; private set; }
         public InputAction Digit4Action { get; private set; }
 
+        // 스탯창
+        public InputAction StatWindowAction { get; private set; }
+
         // 디버그
         public InputAction DebugLevelUpAction { get; private set; }
 
@@ -31,12 +46,12 @@ namespace Necrocis
 
         private void Awake()
         {
-            if (Instance != null && Instance != this)
+            if (instance != null && instance != this)
             {
                 Destroy(gameObject);
                 return;
             }
-            Instance = this;
+            instance = this;
             DontDestroyOnLoad(gameObject);
 
             CreateActions();
@@ -73,6 +88,10 @@ namespace Necrocis
             Digit4Action = new InputAction("Digit4", InputActionType.Button,
                 "<Keyboard>/4");
 
+            // 스탯창
+            StatWindowAction = new InputAction("StatWindow", InputActionType.Button,
+                "<Keyboard>/o");
+
             // 디버그
             DebugLevelUpAction = new InputAction("DebugLevelUp", InputActionType.Button,
                 "<Keyboard>/p");
@@ -87,6 +106,7 @@ namespace Necrocis
             Digit2Action.Enable();
             Digit3Action.Enable();
             Digit4Action.Enable();
+            StatWindowAction.Enable();
             DebugLevelUpAction.Enable();
         }
 
@@ -99,6 +119,7 @@ namespace Necrocis
             Digit2Action?.Disable();
             Digit3Action?.Disable();
             Digit4Action?.Disable();
+            StatWindowAction?.Disable();
             DebugLevelUpAction?.Disable();
         }
 
@@ -191,7 +212,7 @@ namespace Necrocis
                 MoveAction,
                 MeleeAttackAction, RangedAttackAction,
                 Digit1Action, Digit2Action, Digit3Action, Digit4Action,
-                DebugLevelUpAction
+                StatWindowAction, DebugLevelUpAction
             };
         }
     }

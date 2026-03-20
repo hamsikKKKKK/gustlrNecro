@@ -143,6 +143,9 @@ namespace Necrocis
 
             if (playerObj.GetComponent<LevelUpUI>() == null)
                 playerObj.AddComponent<LevelUpUI>();
+
+            if (playerObj.GetComponent<StatUI>() == null)
+                playerObj.AddComponent<StatUI>();
         }
 
         /// <summary>

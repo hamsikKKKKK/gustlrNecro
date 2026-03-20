@@ -16,7 +16,7 @@ namespace Necrocis
         [Header("기본 스탯")]
         [FormerlySerializedAs("moveSpeed")]
         [SerializeField] private float baseMoveSpeed = 5f;
-        [SerializeField] private float baseMaxHealth = 100f;
+        [SerializeField] private float baseMaxHealth = 150f;
         [SerializeField] private float baseAttackPower = 10f;
 
         [Header("스프라이트 렌더러")]
@@ -170,11 +170,6 @@ namespace Necrocis
             }
 
             // InputManager 기반 입력
-            if (InputManager.Instance == null)
-            {
-                GameObject obj = new GameObject("InputManager");
-                obj.AddComponent<InputManager>();
-            }
             var input = InputManager.Instance;
 
             Vector2 moveInput = input.MoveAction.ReadValue<Vector2>();
