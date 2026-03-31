@@ -1,4 +1,5 @@
 {
+    "version": 1,
     "name": "NewInput",
     "maps": [
         {
@@ -18,6 +19,15 @@
                     "name": "Dash",
                     "type": "Button",
                     "id": "832205b3-71c7-46ca-88d1-b634de999ad2",
+                    "expectedControlType": "",
+                    "processors": "",
+                    "interactions": "",
+                    "initialStateCheck": false
+                },
+                {
+                    "name": "Attack",
+                    "type": "Button",
+                    "id": "39fe2504-67b7-482f-a7b2-e9bfe1fc419f",
                     "expectedControlType": "",
                     "processors": "",
                     "interactions": "",
@@ -99,6 +109,17 @@
                     "processors": "",
                     "groups": "",
                     "action": "Dash",
+                    "isComposite": false,
+                    "isPartOfComposite": false
+                },
+                {
+                    "name": "",
+                    "id": "6cc791c5-0bc7-4cbc-afca-c4fbf8144ec4",
+                    "path": "<Keyboard>/q",
+                    "interactions": "",
+                    "processors": "",
+                    "groups": "",
+                    "action": "Attack",
                     "isComposite": false,
                     "isPartOfComposite": false
                 }

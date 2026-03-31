@@ -1,5 +1,5 @@
 using UnityEngine;
-using UnityEngine.InputSystem; // 필수 네임스페이스
+using UnityEngine.InputSystem;
 using System;
 
 [RequireComponent(typeof(Rigidbody), typeof(SpriteRenderer))]
@@ -16,15 +16,21 @@ public class PlayerController : MonoBehaviour
     private float dashTimer = 0f;
     private float dashCooldownTimer = 0f;
     private Vector3 dashDirection;
+    private Vector3 lastFacingDirection = Vector3.right; // 마지막으로 바라본 방향
 
     private Rigidbody rb;
     private SpriteRenderer spriteRenderer;
-    private Vector2 movement; // Input System에서 받아온 값을 저장할 변수
-    private Vector3 lastMovement;
+    private Vector2 movement;
 
     [Header("Health Settings")]
     public int maxHealth = 100;
     private int currentHealth;
+
+    [Header("Attack Settings")]
+    public float attackRange = 2f;
+    public int attackDamage = 20;
+    public float attackCooldown = 0.5f;
+    private float attackTimer = 0f;
 
     public static event Action<int, int> OnHealthChanged;
 
@@ -33,13 +39,13 @@ public class PlayerController : MonoBehaviour
         rb = GetComponent<Rigidbody>();
         spriteRenderer = GetComponent<SpriteRenderer>();
         rb.freezeRotation = true;
-        lastMovement = Vector3.forward;
         currentHealth = maxHealth;
 
         OnHealthChanged?.Invoke(currentHealth, maxHealth);
     }
+
     // New Input System 함수 추가 (Send Messages 방식)
-    // Move 액션이 발생할 때마다 호출됨 (방향키 누르거나 뗄 때)
+    // Move 액션이 발생할 때마다 호출
     void OnMove(InputValue value)
     {
         movement = value.Get<Vector2>();
@@ -54,20 +60,44 @@ public class PlayerController : MonoBehaviour
             StartDash();
         }
     }
+
+    // 공격 (평타 attack - Q키)
+    void OnAttack(InputValue value)
+    {
+        Debug.Log("Attack 버튼 눌림!"); // 이 로그가 나오는지 확인
+        if (value.isPressed && attackTimer <= 0)
+        {
+            Attack();
+            attackTimer = attackCooldown;
+        }
+    }
+
     void Update()
     {
+        // 쿨다운 타이머 업데이트
         if (dashCooldownTimer > 0)
             dashCooldownTimer -= Time.deltaTime;
 
-        if (movement.x < 0)
+        if (attackTimer > 0)
+            attackTimer -= Time.deltaTime;
+
+        // 움직일 때만 바라보는 방향 업데이트
+        if (movement != Vector2.zero)
         {
-            spriteRenderer.flipX = true;
-        }
-        else if (movement.x > 0)
-        {
-            spriteRenderer.flipX = false;
+            lastFacingDirection = new Vector3(movement.x, 0, movement.y).normalized;
+
+            // 스프라이트 방향 전환 (좌우만)
+            if (movement.x < 0)
+            {
+                spriteRenderer.flipX = true;
+            }
+            else if (movement.x > 0)
+            {
+                spriteRenderer.flipX = false;
+            }
         }
 
+        // 대시 처리
         if (isDashing)
         {
             dashTimer -= Time.deltaTime;
@@ -78,6 +108,7 @@ public class PlayerController : MonoBehaviour
             }
         }
     }
+
     void FixedUpdate()
     {
         if (isDashing)
@@ -96,22 +127,46 @@ public class PlayerController : MonoBehaviour
         }
     }
 
-   void StartDash()
+    void StartDash()
     {
         isDashing = true;
         dashTimer = dashDuration;
         dashCooldownTimer = dashCooldown;
-        
-        // 이동 중이면 입력 방향으로 대쉬
-        if (movement != Vector2.zero)
+
+        // 이동 중이면 입력 방향으로, 아니면 마지막 방향으로 대쉬
+        dashDirection = (movement != Vector2.zero)
+            ? new Vector3(movement.x, 0, movement.y).normalized
+            : lastFacingDirection;
+    }
+
+    void Attack()
+    {
+        Debug.Log("Attack 실행됨!"); // 이 로그가 나오는지 확인
+        Vector3 attackDirection = lastFacingDirection;
+
+        Collider[] enemies = Physics.OverlapSphere(
+            transform.position + attackDirection * attackRange / 2,
+            attackRange / 2
+        );
+
+        Debug.Log($"검색된 적 수: {enemies.Length}"); // 몇 개 찾았는지 확인
+
+        foreach (Collider enemy in enemies)
         {
-             dashDirection = new Vector3(movement.x, 0, movement.y).normalized;
-        }
-        // [수정됨] 가만히 있을 때는 바라보는 방향(스프라이트 반전 상태)으로 대쉬
-        else
-        {
-            // flipX가 true면 왼쪽(Vector3.left), false면 오른쪽(Vector3.right)
-            dashDirection = spriteRenderer.flipX ? Vector3.left : Vector3.right;
+            Debug.Log($"충돌체 태그: {enemy.tag}"); // 태그 확인
+            if (enemy.CompareTag("Enemy"))
+            {
+                EmptyController enemyController = enemy.GetComponent<EmptyController>();
+                if (enemyController != null)
+                {
+                    enemyController.TakeDamage(attackDamage);
+                    Debug.Log($"공격 성공! {attackDamage} 데미지!");
+                }
+                else
+                {
+                    Debug.Log("EmptyController가 없음!");
+                }
+            }
         }
     }
 
@@ -135,4 +190,11 @@ public class PlayerController : MonoBehaviour
         Time.timeScale = 0f;
     }
 
+    // 기즈모로 공격 범위 시각화 (Scene 뷰에서 확인 가능)
+    void OnDrawGizmosSelected()
+    {
+        Vector3 attackDirection = Application.isPlaying ? lastFacingDirection : Vector3.right;
+        Gizmos.color = Color.red;
+        Gizmos.DrawWireSphere(transform.position + attackDirection * attackRange / 2, attackRange / 2);
+    }
 }
