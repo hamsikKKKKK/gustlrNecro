@@ -20,9 +20,10 @@ namespace Necrocis
             Instance = this;
         }
 
-        void Start()
+        private void Start()
         {
             pooledObjects = new List<GameObject>(amountToPool);
+
             for (int i = 0; i < amountToPool; i++)
             {
                 GameObject obj = Instantiate(objectToPool);
@@ -40,6 +41,7 @@ namespace Necrocis
                     return pooledObjects[i];
                 }
             }
+
             return null;
         }
     }

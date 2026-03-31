@@ -461,6 +461,37 @@ MonoBehaviour:
   zoomSpeed: 1
   minZoom: 3
   maxZoom: 10
+--- !u!1 &1264497327
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1264497328}
+  m_Layer: 0
+  m_Name: ProjectileSpawnPoint
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &1264497328
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1264497327}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0.55, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 1905923572}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &1726176259
 GameObject:
   m_ObjectHideFlags: 0
@@ -532,6 +563,8 @@ GameObject:
   - component: {fileID: 1905923575}
   - component: {fileID: 1905923574}
   - component: {fileID: 1905923573}
+  - component: {fileID: 1905923579}
+  - component: {fileID: 1905923578}
   m_Layer: 0
   m_Name: Player
   m_TagString: Player
@@ -601,7 +634,9 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 6677856733d61344e832893e34b6b07b, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::Necrocis.PlayerController
-  moveSpeed: 10
+  baseMoveSpeed: 10
+  baseMaxHealth: 500
+  baseAttackPower: 100
   spriteRenderer: {fileID: 571540666}
   idleSprites:
   - {fileID: -71036734, guid: bb4e252c981424e4ebf934ceb3c5bbb1, type: 3}
@@ -657,6 +692,7 @@ Transform:
   m_ConstrainProportionsScale: 0
   m_Children:
   - {fileID: 571540667}
+  - {fileID: 1264497328}
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!114 &1905923573
@@ -713,7 +749,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: f7994394bc01c564588e6c35d6653ebb, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::Necrocis.Health
-  baseMaxHealth: 100
   invincibilityDuration: 0.2
 --- !u!114 &1905923577
 MonoBehaviour:
@@ -730,8 +765,90 @@ MonoBehaviour:
   meleeAttackDamage: 20
   meleeAttackBoxSize: {x: 1, y: 1, z: 2}
   meleeAttackOffset: 1
-  projectileSpawnPoint: {fileID: 0}
+  projectileSpawnPoint: {fileID: 1264497328}
   attackCooldown: 1
+  warriorAttackUpSprites:
+  - {fileID: -1679438812, guid: 76c660318db87dd45863bd99877c7b8c, type: 3}
+  - {fileID: 742658240, guid: 76c660318db87dd45863bd99877c7b8c, type: 3}
+  - {fileID: 327152017, guid: 76c660318db87dd45863bd99877c7b8c, type: 3}
+  - {fileID: -2043564425, guid: 76c660318db87dd45863bd99877c7b8c, type: 3}
+  - {fileID: -717912863, guid: 76c660318db87dd45863bd99877c7b8c, type: 3}
+  - {fileID: 1768957874, guid: 76c660318db87dd45863bd99877c7b8c, type: 3}
+  warriorAttackDownSprites:
+  - {fileID: -1158072542, guid: 199219357a73e3f4da21696ebfb6bd56, type: 3}
+  - {fileID: -870848365, guid: 199219357a73e3f4da21696ebfb6bd56, type: 3}
+  - {fileID: 1896699837, guid: 199219357a73e3f4da21696ebfb6bd56, type: 3}
+  - {fileID: -1614581720, guid: 199219357a73e3f4da21696ebfb6bd56, type: 3}
+  - {fileID: 1401889003, guid: 199219357a73e3f4da21696ebfb6bd56, type: 3}
+  - {fileID: -677103428, guid: 199219357a73e3f4da21696ebfb6bd56, type: 3}
+  warriorAttackLeftSprites:
+  - {fileID: 283294791, guid: d775133d3b16fdf46928ddf3eab234e5, type: 3}
+  - {fileID: -82863473, guid: d775133d3b16fdf46928ddf3eab234e5, type: 3}
+  - {fileID: 486608566, guid: d775133d3b16fdf46928ddf3eab234e5, type: 3}
+  - {fileID: -609517222, guid: d775133d3b16fdf46928ddf3eab234e5, type: 3}
+  - {fileID: 1023265853, guid: d775133d3b16fdf46928ddf3eab234e5, type: 3}
+  - {fileID: -503512381, guid: d775133d3b16fdf46928ddf3eab234e5, type: 3}
+  warriorAttackRightSprites:
+  - {fileID: -1317198071, guid: 01da1ae0dcecbc046a4709e1497917b6, type: 3}
+  - {fileID: -1924363596, guid: 01da1ae0dcecbc046a4709e1497917b6, type: 3}
+  - {fileID: -882831788, guid: 01da1ae0dcecbc046a4709e1497917b6, type: 3}
+  - {fileID: -747438636, guid: 01da1ae0dcecbc046a4709e1497917b6, type: 3}
+  - {fileID: 1722060196, guid: 01da1ae0dcecbc046a4709e1497917b6, type: 3}
+  - {fileID: -1750746655, guid: 01da1ae0dcecbc046a4709e1497917b6, type: 3}
+  warriorAttackUpLeftSprites:
+  - {fileID: -64171158, guid: c3c8a8edc230e5c4486cea030de76fcd, type: 3}
+  - {fileID: -1545468118, guid: c3c8a8edc230e5c4486cea030de76fcd, type: 3}
+  - {fileID: 1856798952, guid: c3c8a8edc230e5c4486cea030de76fcd, type: 3}
+  - {fileID: -1668689917, guid: c3c8a8edc230e5c4486cea030de76fcd, type: 3}
+  - {fileID: -886884253, guid: c3c8a8edc230e5c4486cea030de76fcd, type: 3}
+  - {fileID: -1220374686, guid: c3c8a8edc230e5c4486cea030de76fcd, type: 3}
+  warriorAttackUpRightSprites:
+  - {fileID: -1247683517, guid: 5ab6770bf562f2c47924ebd941b50e8b, type: 3}
+  - {fileID: 1256513052, guid: 5ab6770bf562f2c47924ebd941b50e8b, type: 3}
+  - {fileID: 1623380606, guid: 5ab6770bf562f2c47924ebd941b50e8b, type: 3}
+  - {fileID: -1445955736, guid: 5ab6770bf562f2c47924ebd941b50e8b, type: 3}
+  - {fileID: -1584202914, guid: 5ab6770bf562f2c47924ebd941b50e8b, type: 3}
+  - {fileID: -1728754028, guid: 5ab6770bf562f2c47924ebd941b50e8b, type: 3}
+  warriorAttackDownLeftSprites:
+  - {fileID: 1399907501, guid: 7be5e4e6be8ad32448c86d16448e907b, type: 3}
+  - {fileID: 1207731091, guid: 7be5e4e6be8ad32448c86d16448e907b, type: 3}
+  - {fileID: 1052878054, guid: 7be5e4e6be8ad32448c86d16448e907b, type: 3}
+  - {fileID: -657049507, guid: 7be5e4e6be8ad32448c86d16448e907b, type: 3}
+  - {fileID: -1646131744, guid: 7be5e4e6be8ad32448c86d16448e907b, type: 3}
+  - {fileID: 1206330435, guid: 7be5e4e6be8ad32448c86d16448e907b, type: 3}
+  warriorAttackDownRightSprites:
+  - {fileID: -1172583478, guid: ea8f013388c2c604cb3959c2d1e75108, type: 3}
+  - {fileID: -1813933697, guid: ea8f013388c2c604cb3959c2d1e75108, type: 3}
+  - {fileID: -829169737, guid: ea8f013388c2c604cb3959c2d1e75108, type: 3}
+  - {fileID: -2083677397, guid: ea8f013388c2c604cb3959c2d1e75108, type: 3}
+  - {fileID: -838586597, guid: ea8f013388c2c604cb3959c2d1e75108, type: 3}
+  - {fileID: -996632507, guid: ea8f013388c2c604cb3959c2d1e75108, type: 3}
+  attackFrameRate: 12
+  lockInputDuringAttackAnimation: 0
+--- !u!114 &1905923578
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1905923568}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: bc59e940b3cc2fc4cb03fdf3e740f582, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::Necrocis.PlayerAnimationController
+--- !u!114 &1905923579
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1905923568}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 9c01680b68414de69e2f057bab278891, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::Necrocis.CharacterStats
 --- !u!1 &2001426150
 GameObject:
   m_ObjectHideFlags: 0

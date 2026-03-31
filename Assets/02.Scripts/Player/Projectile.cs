@@ -1,55 +1,106 @@
 using UnityEngine;
-using System.Collections;
 
 namespace Necrocis
 {
     /// <summary>
-    /// 투사체 — 오브젝트 풀링 지원.
-    /// Launch()로 방향과 데미지를 설정하여 발사.
+    /// 침 뱉기용 원거리 투사체
+    /// - 앞으로 이동
+    /// - 적과 충돌 시 데미지
+    /// - 최대 거리 도달 시 비활성화
     /// </summary>
     public class Projectile : MonoBehaviour
     {
-        [SerializeField] private float speed = 15f;
-        [SerializeField] private float lifeTime = 3f;
+        [Header("이동")]
+        [SerializeField] private float speed = 12f;
+        [SerializeField] private float maxDistance = 10f;
+
+        [Header("충돌")]
+        [SerializeField] private LayerMask hitMask = ~0;
+        [SerializeField] private bool disableOnHit = true;
 
         private Vector3 moveDirection;
+        private Vector3 startPosition;
         private float damage;
+        private bool launched;
+        private GameObject owner;
 
-        public void Launch(Vector3 direction, float damage)
+        public void Launch(Vector3 direction, float projectileDamage, GameObject projectileOwner = null)
         {
             moveDirection = direction.normalized;
-            this.damage = damage;
+            damage = projectileDamage;
+            owner = projectileOwner;
+            startPosition = transform.position;
+            launched = true;
+
+            Debug.Log($"[Projectile] 발사 시작 | 방향={moveDirection} | 데미지={damage} | 위치={transform.position}");
+
+            if (moveDirection.sqrMagnitude > 0.0001f)
+            {
+                transform.rotation = Quaternion.LookRotation(moveDirection);
+            }
         }
 
-        private void OnEnable()
+        private void Update()
         {
-            StartCoroutine(DeactivateAfterTime());
-        }
+            if (!launched)
+                return;
 
-        private void OnDisable()
-        {
-            StopAllCoroutines();
-        }
-
-        void Update()
-        {
             transform.position += moveDirection * speed * Time.deltaTime;
+
+            float distance = Vector3.Distance(startPosition, transform.position);
+            if (distance >= maxDistance)
+            {
+                DisableProjectile();
+            }
         }
 
         private void OnTriggerEnter(Collider other)
         {
-            EnemyController enemy = other.GetComponentInParent<EnemyController>();
+            if (!launched)
+                return;
+
+            Debug.Log($"[Projectile] 충돌 감지 | 대상={other.gameObject.name} | 레이어={other.gameObject.layer}");
+
+            if (owner != null && other.transform.root.gameObject == owner)
+                return;
+
+            if (((1 << other.gameObject.layer) & hitMask) == 0)
+                return;
+
+            EnemyController enemy = other.GetComponent<EnemyController>();
+            if (enemy == null)
+                enemy = other.GetComponentInParent<EnemyController>();
+
             if (enemy != null && !enemy.IsDead)
             {
                 enemy.TakeDamage(damage);
-                gameObject.SetActive(false);
+                Debug.Log($"[Projectile] 침 적중 | 대상={enemy.gameObject.name} | 데미지={damage}");
+
+                if (disableOnHit)
+                {
+                    DisableProjectile();
+                }
+
+                return;
+            }
+
+            if (disableOnHit)
+            {
+                DisableProjectile();
             }
         }
 
-        private IEnumerator DeactivateAfterTime()
+        private void DisableProjectile()
         {
-            yield return new WaitForSeconds(lifeTime);
+            launched = false;
+            owner = null;
             gameObject.SetActive(false);
+        }
+
+        private void OnDisable()
+        {
+            launched = false;
+            owner = null;
         }
     }
 }

@@ -41,6 +41,8 @@ namespace Necrocis
         [SerializeField] private float groundOffsetY = -2f;
         [SerializeField] private bool useDynamicGroundHeight = true;
 
+        
+
         // 방향
         public enum Direction { Down, Up, Left, Right }
         private Direction currentDirection = Direction.Down;
@@ -561,6 +563,47 @@ namespace Necrocis
             {
                 Die();
             }
+        }
+        public void ApplyAnimationSet(AnimationSet set)
+        {
+            if (set == null)
+            {
+                Debug.LogWarning("[PlayerController] AnimationSet이 null입니다.");
+                return;
+            }
+
+            idleSprites = set.IdleSprites;
+            walkDownSprites = set.WalkDownSprites;
+            walkUpSprites = set.WalkUpSprites;
+            walkLeftSprites = set.WalkLeftSprites;
+            walkRightSprites = set.WalkRightSprites;
+
+            UpdateAnimationState();
+
+            if (!isMoving)
+            {
+                SetAnimation(idleSprites, idleFrameRate);
+            }
+            else
+            {
+                switch (currentDirection)
+                {
+                    case Direction.Down:
+                        SetAnimation(walkDownSprites, walkFrameRate);
+                        break;
+                    case Direction.Up:
+                        SetAnimation(walkUpSprites, walkFrameRate);
+                        break;
+                    case Direction.Left:
+                        SetAnimation(walkLeftSprites, walkFrameRate);
+                        break;
+                    case Direction.Right:
+                        SetAnimation(walkRightSprites, walkFrameRate);
+                        break;
+                }
+            }
+
+            Debug.Log("[PlayerController] 새로운 애니메이션 세트가 적용되었습니다.");
         }
 
         private void Die()

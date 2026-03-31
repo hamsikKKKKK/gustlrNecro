@@ -27,6 +27,24 @@ namespace Necrocis
         public static Action OnJobSelect;
         public static Action<int> OnExpGained;
 
+        // 외형 변경용 이벤트
+        public static Action<JobType, bool> OnClassChanged;
+
+        private static int pendingLevelUps;
+
+        // 직업 / 전직 상태
+        private static JobType currentJob = JobType.None;
+        private static bool isAdvanced = false;
+
+        private static List<StatChoice> selectionHistory = new List<StatChoice>();
+
+        private static Dictionary<JobType, StatChoice> jobStatMap = new Dictionary<JobType, StatChoice>
+        {
+            [JobType.Warrior] = StatChoice.AttackDefenseUp,
+            [JobType.Mage] = StatChoice.MagicCooldownUp,
+            [JobType.Archer] = StatChoice.AttackSpeedRangeUp
+        };
+
         public static void AddExp(int baseAmount)
         {
             if (currentLevel >= MAX_LEVEL) return;
@@ -44,15 +62,13 @@ namespace Necrocis
         {
             if (currentLevel <= 9)
                 return 2.0f;
-            else if (currentLevel == 10)
-                return 0f;
+            else if (currentLevel == 10 && currentJob == JobType.None)
+                return 0f; // 10레벨에서 직업 선택 전까지 성장 정지
             else if (currentLevel <= 20)
                 return 1.0f;
             else
                 return 0.8f;
         }
-
-        private static int pendingLevelUps;
 
         private static void CheckLevelUp()
         {
@@ -67,6 +83,7 @@ namespace Necrocis
             if (pendingLevelUps > 0)
             {
                 pendingLevelUps--;
+
                 if (currentLevel == 10 && currentJob == JobType.None)
                     OnJobSelect?.Invoke();
                 else
@@ -84,6 +101,7 @@ namespace Necrocis
             if (pendingLevelUps > 0)
             {
                 pendingLevelUps--;
+
                 if (currentLevel == 10 && currentJob == JobType.None)
                     OnJobSelect?.Invoke();
                 else
@@ -99,8 +117,10 @@ namespace Necrocis
         public static void DebugLevelUp()
         {
             if (currentLevel >= MAX_LEVEL) return;
+
             currentLevel++;
             CalculateExpRequired();
+
             if (currentLevel == 10 && currentJob == JobType.None)
                 OnJobSelect?.Invoke();
             else
@@ -110,18 +130,49 @@ namespace Necrocis
         public static int GetCurrentLevel() => currentLevel;
         public static int GetCurrentExp() => currentExp;
         public static int GetExpRequired() => expRequired;
-        public static float GetExpProgress() => (float)currentExp / expRequired;
+        public static float GetExpProgress() => expRequired > 0 ? (float)currentExp / expRequired : 0f;
 
-        // 직업 시스템
-        private static JobType currentJob = JobType.None;
-        private static List<StatChoice> selectionHistory = new List<StatChoice>();
-
-        private static Dictionary<JobType, StatChoice> jobStatMap = new Dictionary<JobType, StatChoice>
+        public static bool SetJob(JobType newJob)
         {
-            [JobType.Warrior] = StatChoice.AttackDefenseUp,
-            [JobType.Mage] = StatChoice.MagicCooldownUp,
-            [JobType.Archer] = StatChoice.AttackSpeedRangeUp
-        };
+            if (currentJob != JobType.None)
+            {
+                Debug.LogWarning("[LevelUpManager] 이미 직업이 선택되었습니다.");
+                return false;
+            }
+
+            if (newJob == JobType.None)
+            {
+                Debug.LogWarning("[LevelUpManager] 유효하지 않은 직업입니다.");
+                return false;
+            }
+
+            currentJob = newJob;
+            isAdvanced = true; // 10레벨 선택 = 즉시 전직
+
+            Debug.Log($"[LevelUpManager] 직업 선택 완료 | 직업={currentJob} | 전직={isAdvanced}");
+            OnClassChanged?.Invoke(currentJob, isAdvanced);
+
+            return true;
+        }
+
+        public static bool Promote()
+        {
+            if (currentJob == JobType.None)
+            {
+                Debug.LogWarning("[LevelUpManager] 직업이 없어 전직할 수 없습니다.");
+                return false;
+            }
+
+            if (isAdvanced)
+            {
+                Debug.LogWarning("[LevelUpManager] 이미 전직된 상태입니다.");
+                return false;
+            }
+
+            isAdvanced = true;
+            OnClassChanged?.Invoke(currentJob, isAdvanced);
+            return true;
+        }
 
         public static List<StatChoice> GetRandomChoices()
         {
@@ -134,8 +185,8 @@ namespace Necrocis
         private static List<StatChoice> GetRandomFourChoices()
         {
             List<StatChoice> allChoices = Enum.GetValues(typeof(StatChoice))
-                                               .Cast<StatChoice>()
-                                               .ToList();
+                                             .Cast<StatChoice>()
+                                             .ToList();
             Shuffle(allChoices);
             return allChoices.Take(4).ToList();
         }
@@ -168,8 +219,10 @@ namespace Necrocis
             foreach (StatChoice choice in selectionHistory)
             {
                 if (choice == exclude) continue;
+
                 if (!counts.ContainsKey(choice))
                     counts[choice] = 0;
+
                 counts[choice]++;
             }
 
@@ -194,18 +247,19 @@ namespace Necrocis
                 return mostSelectedList[UnityEngine.Random.Range(0, mostSelectedList.Count)];
 
             List<StatChoice> allChoices = Enum.GetValues(typeof(StatChoice))
-                                               .Cast<StatChoice>()
-                                               .Where(c => c != exclude)
-                                               .ToList();
+                                             .Cast<StatChoice>()
+                                             .Where(c => c != exclude)
+                                             .ToList();
+
             return allChoices[UnityEngine.Random.Range(0, allChoices.Count)];
         }
 
         private static List<StatChoice> GetRemainingChoices(List<StatChoice> alreadySelected)
         {
             return Enum.GetValues(typeof(StatChoice))
-                        .Cast<StatChoice>()
-                        .Where(c => !alreadySelected.Contains(c))
-                        .ToList();
+                       .Cast<StatChoice>()
+                       .Where(c => !alreadySelected.Contains(c))
+                       .ToList();
         }
 
         private static void Shuffle<T>(List<T> list)
@@ -220,8 +274,16 @@ namespace Necrocis
         }
 
         public static void RecordSelection(StatChoice choice) => selectionHistory.Add(choice);
-        public static void SetJob(JobType job) => currentJob = job;
         public static void ResetSelectionHistory() => selectionHistory.Clear();
+
         public static JobType GetCurrentJob() => currentJob;
+        public static bool IsAdvanced() => isAdvanced;
+
+        public static void ResetJob()
+        {
+            currentJob = JobType.None;
+            isAdvanced = false;
+            OnClassChanged?.Invoke(currentJob, isAdvanced);
+        }
     }
 }
